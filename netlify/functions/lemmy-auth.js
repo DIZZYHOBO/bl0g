@@ -1,4 +1,3 @@
-const { LemmyHttp } = require('lemmy-js-client');
 const jwt = require('jsonwebtoken');
 
 exports.handler = async (event, context) => {
@@ -23,13 +22,51 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const { instance, username, password } = JSON.parse(event.body);
+    // Check if JWT_SECRET exists
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET environment variable is not set');
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Server configuration error' })
+      };
+    }
+
+    // Parse request body
+    let requestBody;
+    try {
+      requestBody = JSON.parse(event.body);
+    } catch (parseError) {
+      console.error('Failed to parse request body:', parseError);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Invalid request body' })
+      };
+    }
+
+    const { instance, username, password } = requestBody;
+
+    if (!instance || !username || !password) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Missing required fields: instance, username, password' })
+      };
+    }
+
+    // Import LemmyHttp dynamically
+    const { LemmyHttp } = await import('lemmy-js-client');
+    
+    console.log(`Attempting to login to ${instance} with username: ${username}`);
     
     const client = new LemmyHttp(`https://${instance}`);
     const loginResponse = await client.login({
       username_or_email: username,
       password: password,
     });
+
+    console.log('Login response received:', !!loginResponse.jwt);
 
     if (loginResponse.jwt) {
       // Create our own session token
@@ -64,7 +101,10 @@ exports.handler = async (event, context) => {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Authentication failed' })
+      body: JSON.stringify({ 
+        error: 'Authentication failed',
+        details: error.message 
+      })
     };
   }
 };
