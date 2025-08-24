@@ -1,12 +1,7 @@
-import { getGlobalData } from '../../utils/global-data';
-import {
-  getNextPostBySlug,
-  getPostBySlug,
-  getPreviousPostBySlug,
-  getPostFilePaths,
-} from '../../utils/mdx-utils';
-
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { MDXRemote } from 'next-mdx-remote';
+import { serialize } from 'next-mdx-remote/serialize';
 import Head from 'next/head';
 import Link from 'next/link';
 import ArrowIcon from '../../components/ArrowIcon';
@@ -16,88 +11,217 @@ import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import Layout, { GradientBackground } from '../../components/Layout';
 import SEO from '../../components/SEO';
+import { getGlobalData } from '../../utils/global-data';
 
-// Custom components/renderers to pass to MDX.
-// Since the MDX files aren't loaded by webpack, they have no knowledge of how
-// to handle import statements. Instead, you must include components in scope
-// here.
+// Custom components for MDX
 const components = {
   a: CustomLink,
-  // It also works with dynamically-imported components, which is especially
-  // useful for conditionally loading components for certain routes.
-  // See the notes in README.md for more details.
   Head,
   img: CustomImage,
 };
 
-export default function PostPage({
-  source,
-  frontMatter,
-  prevPost,
-  nextPost,
-  globalData,
-  slug,
-}) {
+export default function PostPage({ globalData }) {
+  const router = useRouter();
+  const { slug } = router.query;
+  const [post, setPost] = useState(null);
+  const [mdxSource, setMdxSource] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!slug) return;
+
+    const fetchPost = async () => {
+      try {
+        setLoading(true);
+        
+        // Try to fetch from API first
+        const response = await fetch(`/.netlify/functions/api-posts-slug/${slug}`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            const postData = data.data.post;
+            setPost(postData);
+            
+            // Serialize MDX content
+            const mdx = await serialize(postData.content || '# Post Content\n\nContent not available.');
+            setMdxSource(mdx);
+          } else {
+            setError('Post not found');
+          }
+        } else {
+          // Fallback: Try to fetch from static files
+          await fetchStaticPost();
+        }
+      } catch (err) {
+        console.error('Error fetching post:', err);
+        await fetchStaticPost();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchStaticPost = async () => {
+      try {
+        // Import the post utilities to get static posts
+        const { getPostBySlug, getPostFilePaths } = await import('../../utils/mdx-utils');
+        const postPaths = getPostFilePaths();
+        
+        // Check if post exists in static files
+        const postExists = postPaths.some(path => path.replace(/\.mdx?$/, '') === slug);
+        
+        if (postExists) {
+          const { mdxSource, data } = await getPostBySlug(slug);
+          setPost({
+            slug: slug,
+            title: data.title,
+            description: data.description,
+            author: data.author || 'Blog Author',
+            date: data.date,
+            tags: data.tags || [],
+            content: '', // Content is in mdxSource
+          });
+          setMdxSource(mdxSource);
+        } else {
+          setError('Post not found');
+        }
+      } catch (staticError) {
+        console.error('Static post fetch failed:', staticError);
+        setError('Post not found');
+      }
+    };
+
+    fetchPost();
+  }, [slug]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <Header name={globalData.name} />
+        <div className="text-center py-20">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <div>Loading post...</div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error || !post) {
+    return (
+      <Layout>
+        <SEO title={`Post Not Found - ${globalData.name}`} description="The requested post could not be found" />
+        <Header name={globalData.name} />
+        <div className="text-center py-20">
+          <div className="text-6xl mb-4">📄</div>
+          <h1 className="text-3xl font-bold mb-4">Post Not Found</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
+            The post you&apos;re looking for doesn&apos;t exist or has been moved.
+          </p>
+          <Link 
+            href="/"
+            className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
+          >
+            ← Back to Home
+          </Link>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <SEO
-        title={`${frontMatter.title} - ${globalData.name}`}
-        description={frontMatter.description}
+        title={`${post.title} - ${globalData.name}`}
+        description={post.description}
       />
       <Header name={globalData.name} />
-      <article className="px-6 md:px-0" data-sb-object-id={`posts/${slug}.mdx`}>
-        <header>
-          <h1
-            className="mb-12 text-3xl text-center md:text-5xl dark:text-white"
-            data-sb-field-path="title"
+      
+      <article className="px-6 md:px-0 max-w-4xl mx-auto">
+        <header className="mb-8">
+          {/* Back to Home Link */}
+          <Link 
+            href="/"
+            className="inline-flex items-center text-primary hover:text-primary/80 mb-6 transition-colors"
           >
-            {frontMatter.title}
+            <ArrowIcon className="rotate-180 mr-2 w-4 h-4" />
+            Back to Community Posts
+          </Link>
+
+          {/* Post Meta */}
+          <div className="mb-6">
+            {post.date && (
+              <p className="text-sm font-bold uppercase opacity-60 mb-2">
+                {new Date(post.date).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </p>
+            )}
+            {post.author && (
+              <p className="text-primary font-medium mb-4">
+                By {post.author}
+              </p>
+            )}
+            {post.tags && post.tags.length > 0 && (
+              <div className="flex gap-2 flex-wrap mb-4">
+                {post.tags.map((tag, i) => (
+                  <span 
+                    key={i}
+                    className="px-3 py-1 text-sm bg-primary/20 text-primary rounded-full"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Title */}
+          <h1 className="text-3xl md:text-5xl font-bold mb-6 dark:text-white">
+            {post.title}
           </h1>
-          {frontMatter.description && (
-            <p className="mb-4 text-xl" data-sb-field-path="description">
-              {frontMatter.description}
+          
+          {/* Description */}
+          {post.description && (
+            <p className="text-xl text-gray-600 dark:text-gray-400 mb-8">
+              {post.description}
+            </p>
+          )}
+
+          {/* Read Time */}
+          {post.read_time && (
+            <p className="text-sm opacity-60 mb-8">
+              {post.read_time} min read
             </p>
           )}
         </header>
+
+        {/* Post Content */}
         <main>
-          <article
-            className="prose dark:prose-invert"
-            data-sb-field-path="markdown_content"
-          >
-            <MDXRemote {...source} components={components} />
+          <article className="prose prose-lg dark:prose-invert max-w-none">
+            {mdxSource ? (
+              <MDXRemote {...mdxSource} components={components} />
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <p>Content not available</p>
+              </div>
+            )}
           </article>
         </main>
-        <div className="grid mt-12 md:grid-cols-2 lg:-mx-24">
-          {prevPost && (
-            <Link
-              href={`/posts/${prevPost.slug}`}
-              className="flex flex-col px-10 py-8 text-center transition border border-gray-800/10 bg-white/10 md:text-right first:rounded-t-lg md:first:rounded-tr-none md:first:rounded-l-lg last:rounded-r-lg last:rounded-b-lg backdrop-blur-lg dark:bg-black/30 hover:bg-white/20 dark:hover:bg-black/50 dark:border-white/10 last:border-t md:border-r-0 md:last:border-r md:last:rounded-r-none"
-            >
-              <p className="mb-4 text-gray-500 uppercase dark:text-white dark:opacity-60">
-                Previous
-              </p>
-              <h4 className="mb-6 text-2xl text-gray-700 dark:text-white">
-                {prevPost.title}
-              </h4>
-              <ArrowIcon className="mx-auto mt-auto transform rotate-180 md:mr-0" />
-            </Link>
-          )}
-          {nextPost && (
-            <Link
-              href={`/posts/${nextPost.slug}`}
-              className="flex flex-col px-10 py-8 text-center transition border border-t-0 border-b-0 border-gray-800/10 bg-white/10 md:text-left md:first:rounded-t-lg last:rounded-b-lg first:rounded-l-lg md:last:rounded-bl-none md:last:rounded-r-lg backdrop-blur-lg dark:bg-black/30 hover:bg-white/20 dark:hover:bg-black/50 dark:border-white/10 first:border-t first:rounded-t-lg md:border-t last:border-b"
-            >
-              <p className="mb-4 text-gray-500 uppercase dark:text-white dark:opacity-60">
-                Next
-              </p>
-              <h4 className="mb-6 text-2xl text-gray-700 dark:text-white">
-                {nextPost.title}
-              </h4>
-              <ArrowIcon className="mx-auto mt-auto md:ml-0" />
-            </Link>
-          )}
-        </div>
+
+        {/* Back to Home Footer */}
+        <footer className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 text-center">
+          <Link 
+            href="/"
+            className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
+          >
+            ← Back to Community Posts
+          </Link>
+        </footer>
       </article>
+
       <Footer copyrightText={globalData.footerText} />
       <GradientBackground
         variant="large"
@@ -111,33 +235,13 @@ export default function PostPage({
   );
 }
 
-export const getStaticProps = async ({ params }) => {
+// Use getServerSideProps for dynamic content
+export async function getServerSideProps(context) {
   const globalData = getGlobalData();
-  const { mdxSource, data } = await getPostBySlug(params.slug);
-  const prevPost = getPreviousPostBySlug(params.slug);
-  const nextPost = getNextPostBySlug(params.slug);
-
+  
   return {
     props: {
       globalData,
-      source: mdxSource,
-      frontMatter: data,
-      slug: params.slug,
-      prevPost,
-      nextPost,
     },
   };
-};
-
-export const getStaticPaths = async () => {
-  const paths = getPostFilePaths()
-    // Remove file extensions for page paths
-    .map((path) => path.replace(/\.mdx?$/, ''))
-    // Map the path into the static paths object required by Next.js
-    .map((slug) => ({ params: { slug } }));
-
-  return {
-    paths,
-    fallback: false,
-  };
-};
+}
