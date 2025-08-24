@@ -1,4 +1,6 @@
 const jwt = require('jsonwebtoken');
+const { Octokit } = require('@octokit/rest');
+const matter = require('gray-matter');
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -7,6 +9,74 @@ function verifyToken(authHeader) {
   
   const token = authHeader.substring(7);
   return jwt.verify(token, process.env.JWT_SECRET);
+}
+
+// Function to get single post from GitHub repo
+async function getPostFromRepo(slug) {
+  if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
+    return null;
+  }
+
+  try {
+    const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+    const [owner, repo] = process.env.GITHUB_REPO.split('/');
+    
+    // Get all files in posts directory
+    const { data: files } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: 'posts',
+    });
+
+    // Find the post file by slug
+    const postFile = files.find(file => {
+      const fileSlug = file.name.replace(/\.(mdx|md)$/, '');
+      return fileSlug === slug || fileSlug.includes(slug);
+    });
+
+    if (!postFile) {
+      return null;
+    }
+
+    // Get file content
+    const { data: fileData } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: postFile.path,
+    });
+    
+    const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
+    const { data: frontmatter, content: markdownContent } = matter(content);
+    
+    // Skip drafts
+    if (frontmatter.draft) {
+      return null;
+    }
+    
+    // Calculate read time
+    const wordCount = markdownContent.split(/\s+/).length;
+    const readTime = Math.ceil(wordCount / 200);
+    
+    return {
+      slug,
+      title: frontmatter.title || 'Untitled',
+      description: frontmatter.description || '',
+      content: markdownContent,
+      author: frontmatter.author || 'Unknown',
+      date: frontmatter.date || new Date().toISOString().split('T')[0],
+      tags: frontmatter.tags || [],
+      read_time: readTime,
+      word_count: wordCount,
+      published: !frontmatter.draft,
+      created_at: frontmatter.date ? new Date(frontmatter.date).toISOString() : new Date().toISOString(),
+      updated_at: fileData.last_modified || new Date().toISOString(),
+      filename: postFile.name
+    };
+    
+  } catch (error) {
+    console.error('Error fetching post from GitHub:', error);
+    return null;
+  }
 }
 
 exports.handler = async (event, context) => {
@@ -39,24 +109,18 @@ exports.handler = async (event, context) => {
 
     // GET /api/posts/:slug - Get specific post
     if (event.httpMethod === 'GET') {
-      // Mock post data - in real app, you'd load from files/database
-      const mockPost = {
-        slug: slug,
-        title: 'My Blog Post',
-        description: 'This is a sample blog post',
-        content: '# Welcome\n\nThis is the full content of the blog post...',
-        author: 'user@lemmy.ml',
-        date: '2025-01-15',
-        tags: ['sample', 'api'],
-        published: true,
-        created_at: '2025-01-15T10:00:00Z',
-        updated_at: '2025-01-15T10:00:00Z',
-        stats: {
-          word_count: 150,
-          read_time: 3,
-          character_count: 890
-        }
-      };
+      const post = await getPostFromRepo(slug);
+      
+      if (!post) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            error: 'not_found',
+            message: 'Post not found'
+          })
+        };
+      }
 
       return {
         statusCode: 200,
@@ -64,7 +128,7 @@ exports.handler = async (event, context) => {
         body: JSON.stringify({
           success: true,
           data: {
-            post: mockPost,
+            post: post,
             meta: {
               api_url: `${process.env.URL}/.netlify/functions/api-posts-slug/${slug}`,
               web_url: `${process.env.URL}/posts/${slug}`,
@@ -75,47 +139,8 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // PUT /api/posts/:slug - Update post
-    if (event.httpMethod === 'PUT') {
-      const decoded = verifyToken(event.headers.authorization);
-      const { title, content, description, tags, isDraft } = JSON.parse(event.body);
-      
-      // In real app, you'd update the actual file
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          message: 'Post updated successfully',
-          data: {
-            slug: slug,
-            title: title,
-            updated_at: new Date().toISOString(),
-            updated_by: `${decoded.username}@${decoded.instance}`
-          }
-        })
-      };
-    }
-
-    // DELETE /api/posts/:slug - Delete post
-    if (event.httpMethod === 'DELETE') {
-      const decoded = verifyToken(event.headers.authorization);
-      
-      // In real app, you'd delete the actual file
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          message: 'Post deleted successfully',
-          data: {
-            slug: slug,
-            deleted_at: new Date().toISOString(),
-            deleted_by: `${decoded.username}@${decoded.instance}`
-          }
-        })
-      };
-    }
+    // PUT and DELETE methods would go here for authenticated users
+    // For now, just return method not allowed
 
     return {
       statusCode: 405,
@@ -127,17 +152,7 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return {
-        statusCode: 401,
-        headers,
-        body: JSON.stringify({
-          error: 'unauthorized',
-          message: 'Invalid token'
-        })
-      };
-    }
-
+    console.error('Single post API error:', error);
     return {
       statusCode: 500,
       headers,
