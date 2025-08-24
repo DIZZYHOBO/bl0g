@@ -1,17 +1,25 @@
 [build]
   command = "npm run build"
-  publish = "out"
+  publish = ".next"
   functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "18"
 
-[[redirects]]
-  from = "/admin"
-  to = "/admin/index.html"
-  status = 200
+# Don't need these redirects for Pages Router with Netlify
+# [[redirects]]
+#   from = "/admin"
+#   to = "/admin/index.html"
+#   status = 200
 
-[[redirects]]
-  from = "/login"
-  to = "/login/index.html"
-  status = 200
+# [[redirects]]
+#   from = "/login"
+#   to = "/login/index.html"
+#   status = 200
+
+[functions]
+  node_bundler = "nft"
+
+# Add Netlify Next.js plugin
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
