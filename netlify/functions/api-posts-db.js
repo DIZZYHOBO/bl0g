@@ -1,5 +1,54 @@
 const jwt = require('jsonwebtoken');
-const { getStore } = require('@netlify/blobs');
+
+// Simple in-memory storage for now (will reset on deploy)
+let posts = [
+  {
+    slug: 'welcome-to-community',
+    title: 'Welcome to Our Community Blog!',
+    description: 'A place where Lemmy users share their thoughts and ideas',
+    content: `# Welcome to Our Community Blog!
+
+This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights.
+
+## Getting Started
+
+To contribute to our community blog:
+
+1. **Login** with your Lemmy account credentials
+2. **Click "Write Post"** to create new content  
+3. **Share your knowledge** with the community!
+
+## What You Can Share
+
+- Programming tutorials and tips
+- Technology insights and reviews  
+- Personal projects and experiences
+- Community discussions and thoughts
+- Open source project updates
+- Technical guides and how-tos
+
+## Community Guidelines
+
+- Be respectful and constructive
+- Share original content or properly attribute sources
+- Use clear, descriptive titles
+- Add relevant tags to help others find your content
+
+We're excited to see what you'll contribute to our growing community! Every post helps make this a valuable resource for Lemmy users everywhere.
+
+Happy blogging! 🚀`,
+    content_preview: 'Welcome to our community blog! This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights...',
+    author: 'Community Team',
+    date: new Date().toISOString().split('T')[0],
+    tags: ['welcome', 'community', 'getting-started'],
+    read_time: 3,
+    word_count: 180,
+    published: true,
+    draft: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+];
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -24,6 +73,7 @@ function formatDate(date = new Date()) {
 }
 
 exports.handler = async (event, context) => {
+  // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -31,39 +81,28 @@ exports.handler = async (event, context) => {
     'Content-Type': 'application/json',
   };
 
+  // Handle preflight
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
+    return { 
+      statusCode: 200, 
+      headers, 
+      body: '' 
+    };
   }
 
-  try {
-    const store = getStore('blog-posts');
+  console.log('API called:', event.httpMethod, event.path);
 
-    // GET /api/posts - List all posts
+  try {
+    // GET /api/posts-db - List all posts
     if (event.httpMethod === 'GET') {
       const { page = 1, limit = 10, search, tag, author } = event.queryStringParameters || {};
       
-      console.log('Fetching posts from Netlify Blobs...');
+      console.log('GET request with params:', { page, limit, search, tag, author });
       
-      // Get all posts from blob storage
-      const { blobs } = await store.list();
-      const allPosts = [];
+      // Filter published posts
+      let filteredPosts = posts.filter(post => !post.draft);
       
-      for (const { key } of blobs) {
-        try {
-          const postData = await store.get(key, { type: 'json' });
-          if (postData && !postData.draft) {
-            allPosts.push(postData);
-          }
-        } catch (error) {
-          console.error(`Error fetching post ${key}:`, error);
-        }
-      }
-      
-      console.log(`Found ${allPosts.length} published posts`);
-      
-      // Apply filters
-      let filteredPosts = allPosts;
-      
+      // Apply search filter
       if (search) {
         const searchLower = search.toLowerCase();
         filteredPosts = filteredPosts.filter(post => 
@@ -73,12 +112,14 @@ exports.handler = async (event, context) => {
         );
       }
       
+      // Apply tag filter
       if (tag) {
         filteredPosts = filteredPosts.filter(post => 
           post.tags && post.tags.includes(tag)
         );
       }
       
+      // Apply author filter  
       if (author) {
         filteredPosts = filteredPosts.filter(post => post.author === author);
       }
@@ -92,6 +133,8 @@ exports.handler = async (event, context) => {
       const startIndex = (pageNum - 1) * limitNum;
       const endIndex = startIndex + limitNum;
       const paginatedPosts = filteredPosts.slice(startIndex, endIndex);
+
+      console.log(`Returning ${paginatedPosts.length} posts out of ${filteredPosts.length} total`);
 
       return {
         statusCode: 200,
@@ -118,12 +161,14 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // POST /api/posts - Create new post
+    // POST /api/posts-db - Create new post
     if (event.httpMethod === 'POST') {
+      console.log('POST request received');
+      
       const decoded = verifyToken(event.headers.authorization);
       const { title, content, description, tags, isDraft = false } = JSON.parse(event.body);
       
-      console.log('Creating new post:', title);
+      console.log('Creating post:', { title, isDraft, author: `${decoded.username}@${decoded.instance}` });
       
       if (!title || !content) {
         return {
@@ -145,7 +190,7 @@ exports.handler = async (event, context) => {
       const wordCount = content.split(/\s+/).length;
       const readTime = Math.ceil(wordCount / 200);
       
-      const postData = {
+      const newPost = {
         slug: uniqueSlug,
         title: title,
         description: description || '',
@@ -159,18 +204,13 @@ exports.handler = async (event, context) => {
         draft: isDraft,
         published: !isDraft,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        author_info: {
-          username: decoded.username,
-          instance: decoded.instance,
-          lemmy_user_id: decoded.lemmyUserId
-        }
+        updated_at: new Date().toISOString()
       };
 
-      // Store in Netlify Blobs
-      await store.set(uniqueSlug, JSON.stringify(postData));
+      // Add to beginning of posts array
+      posts.unshift(newPost);
       
-      console.log('Post saved to Netlify Blobs:', uniqueSlug);
+      console.log('Post created successfully:', uniqueSlug);
 
       return {
         statusCode: 201,
@@ -181,11 +221,11 @@ exports.handler = async (event, context) => {
           data: {
             slug: uniqueSlug,
             title: title,
-            author: postData.author,
+            author: newPost.author,
             status: isDraft ? 'draft' : 'published',
-            created_at: postData.created_at,
-            url: `${process.env.URL || 'https://yoursite.netlify.app'}/posts/${uniqueSlug}`,
-            api_url: `${process.env.URL || 'https://yoursite.netlify.app'}/.netlify/functions/api-posts-slug/${uniqueSlug}`
+            created_at: newPost.created_at,
+            url: `${process.env.URL || ''}/posts/${uniqueSlug}`,
+            api_url: `${process.env.URL || ''}/.netlify/functions/api-posts-slug-db/${uniqueSlug}`
           }
         })
       };
@@ -196,12 +236,12 @@ exports.handler = async (event, context) => {
       headers,
       body: JSON.stringify({ 
         error: 'method_not_allowed',
-        message: 'Method not supported'
+        message: `Method ${event.httpMethod} not supported`
       })
     };
 
   } catch (error) {
-    console.error('Posts API error:', error);
+    console.error('API Error:', error);
     
     if (error.name === 'JsonWebTokenError') {
       return {
