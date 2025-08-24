@@ -51,44 +51,13 @@ export default function PostPage({ globalData }) {
             setError('Post not found');
           }
         } else {
-          // Fallback: Try to fetch from static files
-          await fetchStaticPost();
+          setError('Post not found');
         }
       } catch (err) {
         console.error('Error fetching post:', err);
-        await fetchStaticPost();
+        setError('Failed to load post');
       } finally {
         setLoading(false);
-      }
-    };
-
-    const fetchStaticPost = async () => {
-      try {
-        // Import the post utilities to get static posts
-        const { getPostBySlug, getPostFilePaths } = await import('../../utils/mdx-utils');
-        const postPaths = getPostFilePaths();
-        
-        // Check if post exists in static files
-        const postExists = postPaths.some(path => path.replace(/\.mdx?$/, '') === slug);
-        
-        if (postExists) {
-          const { mdxSource, data } = await getPostBySlug(slug);
-          setPost({
-            slug: slug,
-            title: data.title,
-            description: data.description,
-            author: data.author || 'Blog Author',
-            date: data.date,
-            tags: data.tags || [],
-            content: '', // Content is in mdxSource
-          });
-          setMdxSource(mdxSource);
-        } else {
-          setError('Post not found');
-        }
-      } catch (staticError) {
-        console.error('Static post fetch failed:', staticError);
-        setError('Post not found');
       }
     };
 
