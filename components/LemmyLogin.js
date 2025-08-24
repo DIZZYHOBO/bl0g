@@ -58,7 +58,7 @@ export default function LemmyLogin() {
             className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">Don't include https://</p>
+          <p className="text-xs text-gray-500 mt-1">"Don't include https://"</p>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Username</label>
