@@ -93,7 +93,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const response = await fetch('/.netlify/functions/create-post', {
+      const response = await fetch('/.netlify/functions/api-posts-db', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
