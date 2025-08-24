@@ -121,7 +121,7 @@ export default function PostEditor({ post, onSave, onCancel }) {
             className="rounded"
           />
           <label htmlFor="isDraft" className="text-sm">
-            Save as draft (won't be published)
+           Save as draft (won&apos;t be published)
           </label>
         </div>
 
