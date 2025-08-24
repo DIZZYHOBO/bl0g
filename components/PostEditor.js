@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 
 export default function PostEditor({ post, onSave, onCancel }) {
-  const { postToLemmy } = useAuth();
+  const { createPost, user } = useAuth();
   const [formData, setFormData] = useState({
-    title: post.title || '',
-    content: post.content || '',
-    community: post.community || '',
-    url: post.url || ''
+    title: post?.title || '',
+    content: post?.content || '',
+    description: post?.description || '',
+    tags: post?.tags || '',
+    isDraft: post?.isDraft || false
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
@@ -20,28 +21,33 @@ export default function PostEditor({ post, onSave, onCancel }) {
     setSuccess('');
 
     try {
-      const result = await postToLemmy(formData);
+      const postData = {
+        ...formData,
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(Boolean)
+      };
+
+      const result = await createPost(postData);
       
       if (result.success) {
-        setSuccess(`Posted successfully! View at: ${result.postUrl}`);
+        setSuccess(`Post ${formData.isDraft ? 'saved as draft' : 'published'} successfully!`);
         // Clear form after successful post
         setTimeout(() => {
           onSave(formData);
         }, 2000);
       } else {
-        setError(result.error || 'Failed to post to Lemmy');
+        setError(result.error || 'Failed to create post');
       }
     } catch (error) {
-      setError('Error posting to Lemmy: ' + error.message);
+      setError('Error creating post: ' + error.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+    <div className="bg-white/10 dark:bg-gray-800/50 backdrop-blur-lg p-6 rounded-lg shadow-md border border-gray-200/20">
       <h3 className="text-xl font-semibold mb-4">
-        {post.isNew ? 'New Post to Lemmy' : 'Edit Post'}
+        {post?.isNew ? 'Create New Blog Post' : 'Edit Blog Post'}
       </h3>
       
       {error && (
@@ -63,35 +69,32 @@ export default function PostEditor({ post, onSave, onCancel }) {
             type="text"
             value={formData.title}
             onChange={(e) => setFormData({...formData, title: e.target.value})}
-            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
+            className="w-full p-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 bg-white/50"
             required
-            placeholder="Your post title"
+            placeholder="Your blog post title"
           />
         </div>
         
         <div>
-          <label className="block text-sm font-medium mb-1">Community *</label>
+          <label className="block text-sm font-medium mb-1">Description</label>
           <input
             type="text"
-            placeholder="programming@lemmy.ml"
-            value={formData.community}
-            onChange={(e) => setFormData({...formData, community: e.target.value})}
-            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
-            required
+            value={formData.description}
+            onChange={(e) => setFormData({...formData, description: e.target.value})}
+            className="w-full p-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 bg-white/50"
+            placeholder="Brief description of your post"
           />
-          <p className="text-xs text-gray-500 mt-1">Format: communityname@instance.com</p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">URL (optional)</label>
+          <label className="block text-sm font-medium mb-1">Tags</label>
           <input
-            type="url"
-            placeholder="https://yourblog.com/post-title"
-            value={formData.url}
-            onChange={(e) => setFormData({...formData, url: e.target.value})}
-            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
+            type="text"
+            value={formData.tags}
+            onChange={(e) => setFormData({...formData, tags: e.target.value})}
+            className="w-full p-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 bg-white/50"
+            placeholder="javascript, web development, tutorial (comma-separated)"
           />
-          <p className="text-xs text-gray-500 mt-1">Link to your blog post or external content</p>
         </div>
         
         <div>
@@ -99,25 +102,48 @@ export default function PostEditor({ post, onSave, onCancel }) {
           <textarea
             value={formData.content}
             onChange={(e) => setFormData({...formData, content: e.target.value})}
-            rows="12"
-            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
+            rows="15"
+            className="w-full p-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 bg-white/50"
             required
-            placeholder="Write your post content here... (Markdown supported)"
+            placeholder="Write your blog post content here... (Markdown supported)"
           />
+          <p className="text-xs text-gray-500 mt-1">
+            You can use Markdown formatting. The post will be saved as an MDX file.
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="isDraft"
+            checked={formData.isDraft}
+            onChange={(e) => setFormData({...formData, isDraft: e.target.checked})}
+            className="rounded"
+          />
+          <label htmlFor="isDraft" className="text-sm">
+            Save as draft (won't be published)
+          </label>
+        </div>
+
+        <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg text-sm">
+          <p className="font-medium mb-1">Author: {user?.displayName || user?.username}@{user?.instance}</p>
+          <p className="text-gray-600 dark:text-gray-400">
+            This post will be saved to your blog repository and {formData.isDraft ? 'saved as a draft' : 'published live'}.
+          </p>
         </div>
         
         <div className="flex gap-2">
           <button
             type="submit"
             disabled={loading}
-            className="bg-primary text-white px-4 py-2 rounded hover:bg-primary/80 disabled:opacity-50"
+            className="bg-primary text-white px-6 py-3 rounded-lg hover:bg-primary/80 disabled:opacity-50 font-medium"
           >
-            {loading ? 'Posting to Lemmy...' : 'Post to Lemmy'}
+            {loading ? 'Saving...' : formData.isDraft ? 'Save Draft' : 'Publish Post'}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-400"
+            className="bg-gray-500 text-white px-6 py-3 rounded-lg hover:bg-gray-400 font-medium"
           >
             Cancel
           </button>
