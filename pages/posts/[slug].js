@@ -36,7 +36,7 @@ export default function PostPage({ globalData }) {
         setLoading(true);
         
         // Try to fetch from API first
-        const response = await fetch(`/.netlify/functions/api-posts-slug/${slug}`);
+        const response = await fetch(`/.netlify/functions/api-posts-slug-db/${slug}`);
         
         if (response.ok) {
           const data = await response.json();
