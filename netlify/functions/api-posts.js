@@ -24,6 +24,100 @@ function formatDate(date = new Date()) {
   return date.toISOString().split('T')[0];
 }
 
+// Function to get posts from GitHub repo
+async function getPostsFromRepo() {
+  if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
+    return [];
+  }
+
+  try {
+    const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+    const [owner, repo] = process.env.GITHUB_REPO.split('/');
+    
+    // Get all files in posts directory
+    const { data: files } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: 'posts',
+    });
+
+    const posts = [];
+    
+    // Process each MDX file
+    for (const file of files) {
+      if (file.name.endsWith('.mdx') || file.name.endsWith('.md')) {
+        try {
+          // Get file content
+          const { data: fileData } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: file.path,
+          });
+          
+          const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
+          const { data: frontmatter, content: markdownContent } = matter(content);
+          
+          // Skip drafts unless specifically requested
+          if (frontmatter.draft) continue;
+          
+          // Generate slug from filename
+          const slug = file.name.replace(/\.(mdx|md)$/, '');
+          
+          // Calculate read time (roughly 200 words per minute)
+          const wordCount = markdownContent.split(/\s+/).length;
+          const readTime = Math.ceil(wordCount / 200);
+          
+          posts.push({
+            slug,
+            title: frontmatter.title || 'Untitled',
+            description: frontmatter.description || '',
+            content: markdownContent,
+            content_preview: markdownContent.substring(0, 200) + '...',
+            author: frontmatter.author || 'Unknown',
+            date: frontmatter.date || formatDate(),
+            tags: frontmatter.tags || [],
+            read_time: readTime,
+            word_count: wordCount,
+            published: !frontmatter.draft,
+            created_at: frontmatter.date ? new Date(frontmatter.date).toISOString() : new Date().toISOString(),
+            updated_at: fileData.last_modified || new Date().toISOString(),
+            filename: file.name
+          });
+        } catch (error) {
+          console.error(`Error processing file ${file.name}:`, error);
+        }
+      }
+    }
+    
+    // Sort by date (newest first)
+    return posts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    
+  } catch (error) {
+    console.error('Error fetching posts from GitHub:', error);
+    return [];
+  }
+}
+
+// Fallback: Get posts from local files (if running locally)
+function getFallbackPosts() {
+  return [
+    {
+      slug: 'welcome-to-community-blog',
+      title: 'Welcome to Our Community Blog',
+      description: 'Getting started with our Lemmy-powered community blog',
+      content: '# Welcome!\n\nThis is a community blog where Lemmy users can share their thoughts and ideas.',
+      content_preview: 'Welcome to our community blog! This is a place where...',
+      author: 'admin@example.com',
+      date: formatDate(),
+      tags: ['welcome', 'community'],
+      read_time: 2,
+      published: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+  ];
+}
+
 exports.handler = async (event, context) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -41,48 +135,28 @@ exports.handler = async (event, context) => {
     if (event.httpMethod === 'GET') {
       const { page = 1, limit = 10, search, tag, author } = event.queryStringParameters || {};
       
-      // Mock data for demo - in real app, you'd query your posts
-      const mockPosts = [
-        {
-          slug: 'my-first-post',
-          title: 'My First Blog Post',
-          description: 'This is my first post using the API',
-          author: 'user@lemmy.ml',
-          date: '2025-01-15',
-          tags: ['introduction', 'api'],
-          content_preview: 'Welcome to my blog! This post was created using...',
-          read_time: 3,
-          published: true,
-          created_at: '2025-01-15T10:00:00Z',
-          updated_at: '2025-01-15T10:00:00Z'
-        },
-        {
-          slug: 'api-tutorial',
-          title: 'Building APIs with Netlify Functions',
-          description: 'A comprehensive guide to building REST APIs',
-          author: 'developer@lemmy.world',
-          date: '2025-01-14',
-          tags: ['tutorial', 'api', 'netlify'],
-          content_preview: 'In this tutorial, we will learn how to build...',
-          read_time: 8,
-          published: true,
-          created_at: '2025-01-14T15:30:00Z',
-          updated_at: '2025-01-14T16:00:00Z'
-        }
-      ];
-
-      let filteredPosts = mockPosts;
+      // Get posts from GitHub repo or fallback
+      let allPosts = await getPostsFromRepo();
+      if (allPosts.length === 0) {
+        allPosts = getFallbackPosts();
+      }
+      
+      let filteredPosts = allPosts;
       
       // Apply filters
       if (search) {
+        const searchLower = search.toLowerCase();
         filteredPosts = filteredPosts.filter(post => 
-          post.title.toLowerCase().includes(search.toLowerCase()) ||
-          post.description.toLowerCase().includes(search.toLowerCase())
+          post.title.toLowerCase().includes(searchLower) ||
+          post.description.toLowerCase().includes(searchLower) ||
+          post.content.toLowerCase().includes(searchLower)
         );
       }
       
       if (tag) {
-        filteredPosts = filteredPosts.filter(post => post.tags.includes(tag));
+        filteredPosts = filteredPosts.filter(post => 
+          post.tags && post.tags.includes(tag)
+        );
       }
       
       if (author) {
@@ -90,8 +164,10 @@ exports.handler = async (event, context) => {
       }
 
       // Pagination
-      const startIndex = (page - 1) * limit;
-      const endIndex = startIndex + parseInt(limit);
+      const pageNum = parseInt(page);
+      const limitNum = Math.min(parseInt(limit), 50); // Max 50 per page
+      const startIndex = (pageNum - 1) * limitNum;
+      const endIndex = startIndex + limitNum;
       const paginatedPosts = filteredPosts.slice(startIndex, endIndex);
 
       return {
@@ -102,12 +178,12 @@ exports.handler = async (event, context) => {
           data: {
             posts: paginatedPosts,
             pagination: {
-              current_page: parseInt(page),
-              per_page: parseInt(limit),
+              current_page: pageNum,
+              per_page: limitNum,
               total_posts: filteredPosts.length,
-              total_pages: Math.ceil(filteredPosts.length / limit),
+              total_pages: Math.ceil(filteredPosts.length / limitNum),
               has_next: endIndex < filteredPosts.length,
-              has_prev: page > 1
+              has_prev: pageNum > 1
             },
             filters: {
               search: search || null,
@@ -154,7 +230,7 @@ exports.handler = async (event, context) => {
 ${Object.entries(frontmatter)
   .map(([key, value]) => {
     if (Array.isArray(value)) {
-      return `${key}:\n${value.map(item => `  - ${item}`).join('\n')}`;
+      return value.length > 0 ? `${key}:\n${value.map(item => `  - ${item}`).join('\n')}` : `${key}: []`;
     } else if (typeof value === 'boolean') {
       return `${key}: ${value}`;
     } else {
@@ -168,6 +244,7 @@ ${content}
 `;
 
       // GitHub integration (if configured)
+      let githubSuccess = false;
       if (process.env.GITHUB_TOKEN && process.env.GITHUB_REPO) {
         const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
         const [owner, repo] = process.env.GITHUB_REPO.split('/');
@@ -184,6 +261,7 @@ ${content}
               email: `${decoded.username}@${decoded.instance}`,
             },
           });
+          githubSuccess = true;
         } catch (githubError) {
           console.error('GitHub commit error:', githubError);
         }
@@ -202,8 +280,9 @@ ${content}
             author: `${decoded.username}@${decoded.instance}`,
             status: isDraft ? 'draft' : 'published',
             created_at: new Date().toISOString(),
-            url: `${process.env.URL}/posts/${slug}`,
-            api_url: `${process.env.URL}/.netlify/functions/api-posts/${slug}`
+            github_committed: githubSuccess,
+            url: `${process.env.URL || 'https://yoursite.netlify.app'}/posts/${slug}`,
+            api_url: `${process.env.URL || 'https://yoursite.netlify.app'}/.netlify/functions/api-posts/${slug}`
           }
         })
       };
