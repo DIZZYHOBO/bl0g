@@ -90,7 +90,7 @@ export default function LemmyLogin() {
             required
             disabled={loading}
           />
-          <p className="text-xs text-gray-500 mt-1">Don't include https://</p>
+          <p className="text-xs text-gray-500 mt-1">Do not include https://</p>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Username</label>
