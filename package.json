@@ -14,18 +14,25 @@
     "url": "https://github.com/netlify-templates/nextjs-blog-theme/issues"
   },
   "scripts": {
-    "dev": "next",
+    "dev": "netlify dev",
     "dev:watch": "next-remote-watch ./posts",
     "build": "next build",
     "start": "next start",
     "export": "next build && next export",
-    "lint": "next lint"
+    "lint": "next lint",
+    "deploy": "netlify deploy --prod"
   },
   "dependencies": {
     "@mapbox/rehype-prism": "^0.9.0",
+    "@mdx-js/loader": "^3.0.0",
+    "@mdx-js/react": "^3.0.0",
+    "@next/mdx": "^15.1.4",
     "@tailwindcss/typography": "^0.5.12",
+    "bcryptjs": "^2.4.3",
     "classnames": "^2.3.1",
     "gray-matter": "^4.0.3",
+    "jsonwebtoken": "^9.0.0",
+    "lemmy-js-client": "^0.19.0",
     "next": "^15.1.4",
     "next-mdx-remote": "^5.0.0",
     "next-remote-watch": "2.0.0",
@@ -36,6 +43,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@netlify/cli": "^17.0.0",
     "@stackbit/cms-git": "^1.0.32",
     "@stackbit/types": "^2.0.1",
     "@tailwindcss/postcss": "^4.0.16",
