@@ -20,6 +20,21 @@ export default function Admin() {
     setMounted(true);
   }, []);
 
+  // Handle newPost URL parameter
+  useEffect(() => {
+    if (mounted && router.query.newPost === 'true' && isAuthenticated) {
+      setSelectedPost({ 
+        title: '', 
+        content: '', 
+        community: '', 
+        url: '', 
+        isNew: true 
+      });
+      // Clean up URL
+      router.replace('/admin', undefined, { shallow: true });
+    }
+  }, [mounted, router.query.newPost, isAuthenticated, router]);
+
   useEffect(() => {
     if (mounted && !loading && !isAuthenticated) {
       router.push('/login');
