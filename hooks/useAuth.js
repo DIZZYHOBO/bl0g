@@ -10,15 +10,35 @@ export const useAuth = () => {
   return context;
 };
 
+// Safe localStorage wrapper
+const safeLocalStorage = {
+  getItem: (key) => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(key);
+    }
+    return null;
+  },
+  setItem: (key, value) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(key, value);
+    }
+  },
+  removeItem: (key) => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+  }
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session
-    const storedToken = localStorage.getItem('lemmy-blog-token');
-    const storedUser = localStorage.getItem('lemmy-blog-user');
+    // Check for existing session only after component mounts
+    const storedToken = safeLocalStorage.getItem('lemmy-blog-token');
+    const storedUser = safeLocalStorage.getItem('lemmy-blog-user');
     
     if (storedToken && storedUser) {
       try {
@@ -26,8 +46,9 @@ export const AuthProvider = ({ children }) => {
         setToken(storedToken);
         setUser(parsedUser);
       } catch (error) {
-        localStorage.removeItem('lemmy-blog-token');
-        localStorage.removeItem('lemmy-blog-user');
+        console.error('Error parsing stored user data:', error);
+        safeLocalStorage.removeItem('lemmy-blog-token');
+        safeLocalStorage.removeItem('lemmy-blog-user');
       }
     }
     setLoading(false);
@@ -46,13 +67,14 @@ export const AuthProvider = ({ children }) => {
       if (data.success) {
         setToken(data.token);
         setUser(data.user);
-        localStorage.setItem('lemmy-blog-token', data.token);
-        localStorage.setItem('lemmy-blog-user', JSON.stringify(data.user));
+        safeLocalStorage.setItem('lemmy-blog-token', data.token);
+        safeLocalStorage.setItem('lemmy-blog-user', JSON.stringify(data.user));
         return { success: true };
       } else {
         return { success: false, error: data.error };
       }
     } catch (error) {
+      console.error('Login error:', error);
       return { success: false, error: 'Login failed' };
     }
   };
@@ -60,8 +82,8 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setToken(null);
     setUser(null);
-    localStorage.removeItem('lemmy-blog-token');
-    localStorage.removeItem('lemmy-blog-user');
+    safeLocalStorage.removeItem('lemmy-blog-token');
+    safeLocalStorage.removeItem('lemmy-blog-user');
   };
 
   const postToLemmy = async (postData) => {
@@ -69,16 +91,25 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Not authenticated');
     }
 
-    const response = await fetch('/.netlify/functions/lemmy-post', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify(postData),
-    });
+    try {
+      const response = await fetch('/.netlify/functions/lemmy-post', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(postData),
+      });
 
-    return await response.json();
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Post to Lemmy error:', error);
+      throw error;
+    }
   };
 
   const value = {
