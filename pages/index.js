@@ -9,6 +9,9 @@ import ArrowIcon from '../components/ArrowIcon';
 import { getGlobalData } from '../utils/global-data';
 import SEO from '../components/SEO';
 
+// ❌ REMOVE THIS LINE - it imports fs module
+// import { getPosts } from '../utils/mdx-utils'; 
+
 export default function Index({ globalData }) {
   const { isAuthenticated, user } = useAuth();
   const [posts, setPosts] = useState([]);
@@ -22,11 +25,16 @@ export default function Index({ globalData }) {
     setMounted(true);
   }, []);
 
-  // Load posts from API
+  // Load posts from API only - no static fallback
   const loadPosts = async (pageNum = 1, append = false) => {
     try {
       setLoading(true);
       const response = await fetch(`/.netlify/functions/api-posts?page=${pageNum}&limit=10`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       if (data.success) {
@@ -54,11 +62,11 @@ export default function Index({ globalData }) {
         
         setHasMore(data.data.pagination.has_next);
       } else {
-        setError('Failed to load posts');
+        setError(data.message || 'Failed to load posts');
       }
     } catch (err) {
       console.error('Error loading posts:', err);
-      setError('Failed to load posts');
+      setError('Failed to load posts. Please try again later.');
     } finally {
       setLoading(false);
     }
@@ -147,12 +155,13 @@ export default function Index({ globalData }) {
         {/* Error State */}
         {error && !loading && (
           <div className="mb-8 p-4 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg text-center">
-            {error}
+            <div className="font-medium mb-2">⚠️ Unable to load posts</div>
+            <div className="text-sm mb-3">{error}</div>
             <button 
               onClick={() => loadPosts()} 
-              className="ml-4 text-sm underline hover:no-underline"
+              className="text-sm bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors"
             >
-              Try again
+              Try Again
             </button>
           </div>
         )}
@@ -293,7 +302,7 @@ export default function Index({ globalData }) {
   );
 }
 
-// Remove getStaticProps since we're loading dynamically
+// Keep getStaticProps but remove static post fetching
 export function getStaticProps() {
   const globalData = getGlobalData();
   return { props: { globalData } };
