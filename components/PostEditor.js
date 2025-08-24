@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';  // ← Add this line
 import { useAuth } from '../hooks/useAuth';
 
 export default function PostEditor({ post, onSave, onCancel }) {
