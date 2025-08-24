@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
 
 export default function LemmyLogin() {
-  const { login, loading: authLoading } = useAuth();
+  const { login, loading: authLoading, isAuthenticated } = useAuth();
+  const [mounted, setMounted] = useState(false);
   const [credentials, setCredentials] = useState({
     instance: 'lemmy.ml',
     username: '',
@@ -13,28 +14,58 @@ export default function LemmyLogin() {
   const [error, setError] = useState('');
   const router = useRouter();
 
+  // Handle hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (mounted && isAuthenticated) {
+      router.push('/admin');
+    }
+  }, [mounted, isAuthenticated, router]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    const result = await login(
-      credentials.instance,
-      credentials.username,
-      credentials.password
-    );
+    try {
+      const result = await login(
+        credentials.instance,
+        credentials.username,
+        credentials.password
+      );
 
-    if (result.success) {
-      router.push('/admin');
-    } else {
-      setError(result.error || 'Login failed');
+      if (result.success) {
+        router.push('/admin');
+      } else {
+        setError(result.error || 'Login failed');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred');
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
-  if (authLoading) {
-    return <div className="text-center">Loading...</div>;
+  // Show loading state during hydration
+  if (!mounted || authLoading) {
+    return (
+      <div className="max-w-md mx-auto mt-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <div className="text-center">Loading...</div>
+      </div>
+    );
+  }
+
+  // Don't show login form if already authenticated
+  if (isAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto mt-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <div className="text-center">Redirecting to admin...</div>
+      </div>
+    );
   }
 
   return (
@@ -57,8 +88,9 @@ export default function LemmyLogin() {
             onChange={(e) => setCredentials({...credentials, instance: e.target.value})}
             className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
             required
+            disabled={loading}
           />
-          <p className="text-xs text-gray-500 mt-1">"Don't include https://"</p>
+          <p className="text-xs text-gray-500 mt-1">Don't include https://</p>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Username</label>
@@ -68,6 +100,7 @@ export default function LemmyLogin() {
             onChange={(e) => setCredentials({...credentials, username: e.target.value})}
             className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
             required
+            disabled={loading}
           />
         </div>
         <div>
@@ -78,6 +111,7 @@ export default function LemmyLogin() {
             onChange={(e) => setCredentials({...credentials, password: e.target.value})}
             className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600"
             required
+            disabled={loading}
           />
         </div>
         <button
@@ -88,6 +122,10 @@ export default function LemmyLogin() {
           {loading ? 'Logging in...' : 'Login'}
         </button>
       </form>
+      
+      <div className="mt-4 text-sm text-gray-500 text-center">
+        <p>Enter your Lemmy instance credentials to start posting.</p>
+      </div>
     </div>
   );
 }
