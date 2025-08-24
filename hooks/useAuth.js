@@ -37,8 +37,8 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     // Check for existing session only after component mounts
-    const storedToken = safeLocalStorage.getItem('lemmy-blog-token');
-    const storedUser = safeLocalStorage.getItem('lemmy-blog-user');
+    const storedToken = safeLocalStorage.getItem('blog-auth-token');
+    const storedUser = safeLocalStorage.getItem('blog-auth-user');
     
     if (storedToken && storedUser) {
       try {
@@ -47,8 +47,8 @@ export const AuthProvider = ({ children }) => {
         setUser(parsedUser);
       } catch (error) {
         console.error('Error parsing stored user data:', error);
-        safeLocalStorage.removeItem('lemmy-blog-token');
-        safeLocalStorage.removeItem('lemmy-blog-user');
+        safeLocalStorage.removeItem('blog-auth-token');
+        safeLocalStorage.removeItem('blog-auth-user');
       }
     }
     setLoading(false);
@@ -56,7 +56,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (instance, username, password) => {
     try {
-      const response = await fetch('/.netlify/functions/lemmy-auth', {
+      const response = await fetch('/.netlify/functions/lemmy-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instance, username, password }),
@@ -67,8 +67,8 @@ export const AuthProvider = ({ children }) => {
       if (data.success) {
         setToken(data.token);
         setUser(data.user);
-        safeLocalStorage.setItem('lemmy-blog-token', data.token);
-        safeLocalStorage.setItem('lemmy-blog-user', JSON.stringify(data.user));
+        safeLocalStorage.setItem('blog-auth-token', data.token);
+        safeLocalStorage.setItem('blog-auth-user', JSON.stringify(data.user));
         return { success: true };
       } else {
         return { success: false, error: data.error };
@@ -82,17 +82,18 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setToken(null);
     setUser(null);
-    safeLocalStorage.removeItem('lemmy-blog-token');
-    safeLocalStorage.removeItem('lemmy-blog-user');
+    safeLocalStorage.removeItem('blog-auth-token');
+    safeLocalStorage.removeItem('blog-auth-user');
   };
 
-  const postToLemmy = async (postData) => {
+  // Blog post functions
+  const createPost = async (postData) => {
     if (!token) {
       throw new Error('Not authenticated');
     }
 
     try {
-      const response = await fetch('/.netlify/functions/lemmy-post', {
+      const response = await fetch('/.netlify/functions/create-post', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -107,7 +108,82 @@ export const AuthProvider = ({ children }) => {
 
       return await response.json();
     } catch (error) {
-      console.error('Post to Lemmy error:', error);
+      console.error('Create post error:', error);
+      throw error;
+    }
+  };
+
+  const updatePost = async (slug, postData) => {
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      const response = await fetch('/.netlify/functions/update-post', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ slug, ...postData }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Update post error:', error);
+      throw error;
+    }
+  };
+
+  const deletePost = async (slug) => {
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      const response = await fetch('/.netlify/functions/delete-post', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ slug }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Delete post error:', error);
+      throw error;
+    }
+  };
+
+  const getDrafts = async () => {
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      const response = await fetch('/.netlify/functions/get-drafts', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Get drafts error:', error);
       throw error;
     }
   };
@@ -118,7 +194,10 @@ export const AuthProvider = ({ children }) => {
     loading,
     login,
     logout,
-    postToLemmy,
+    createPost,
+    updatePost,
+    deletePost,
+    getDrafts,
     isAuthenticated: !!token,
   };
 
