@@ -2,13 +2,21 @@ import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
 import { useState, useEffect } from 'react';
 
-export default function Header({ name }) {
+export default function Header({ name, onPostCreated }) {
   const { user, isAuthenticated, logout } = useAuth();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const handleQuickPost = () => {
+    // Store callback for after post creation
+    if (onPostCreated) {
+      sessionStorage.setItem('postCreatedCallback', 'true');
+    }
+    window.location.href = '/admin?newPost=true&returnHome=true';
+  };
 
   return (
     <header className="pt-20 pb-12">
@@ -19,27 +27,24 @@ export default function Header({ name }) {
       
       {/* Auth Navigation */}
       {mounted && (
-        <div className="flex justify-center gap-3 mt-6">
+        <div className="flex justify-center gap-3 mt-6 flex-wrap">
           {isAuthenticated ? (
             <>
               <Link 
                 href="/admin"
                 className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors text-sm font-medium"
               >
-                📊 Admin Dashboard
+                📊 Dashboard
               </Link>
               <button
-                onClick={() => {
-                  // Quick post - redirect to admin with new post state
-                  window.location.href = '/admin?newPost=true';
-                }}
+                onClick={handleQuickPost}
                 className="px-4 py-2 bg-gradient-to-r from-gradient-1 to-gradient-2 text-white rounded-lg hover:opacity-80 transition-opacity text-sm font-medium"
               >
-                ✍️ Post to Lemmy
+                ✍️ Quick Post
               </button>
               <div className="flex items-center gap-2 px-3 py-2 bg-white/10 dark:bg-gray-800/50 backdrop-blur-lg rounded-lg border border-gray-200/20">
                 <span className="text-xs text-gray-600 dark:text-gray-400">
-                  {user?.username}@{user?.instance}
+                  {user?.display_name || user?.username}@{user?.instance}
                 </span>
                 <button
                   onClick={logout}
