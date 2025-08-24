@@ -29,7 +29,7 @@ export default function Index({ globalData }) {
   const loadPosts = async (pageNum = 1, append = false) => {
     try {
       setLoading(true);
-      const response = await fetch(`/.netlify/functions/api-posts?page=${pageNum}&limit=10`);
+      const response = await fetch(`/.netlify/functions/api-posts-db?page=${pageNum}&limit=10`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
