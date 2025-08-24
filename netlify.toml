@@ -1,6 +1,6 @@
 [build]
   command = "npm run build"
-  publish = ".next"
+  publish = "out"
   functions = "netlify/functions"
 
 [build.environment]
@@ -8,13 +8,10 @@
 
 [[redirects]]
   from = "/admin"
-  to = "/admin.html"
+  to = "/admin/index.html"
   status = 200
 
 [[redirects]]
   from = "/login"
-  to = "/login.html"
+  to = "/login/index.html"
   status = 200
-
-[functions]
-  node_bundler = "nft"
