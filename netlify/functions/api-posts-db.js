@@ -1,9 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { getStore } = require('@netlify/blobs');
 
-// In-memory fallback
-const memoryStore = new Map();
-
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     throw new Error('Invalid authorization header');
@@ -30,30 +27,29 @@ function createWelcomePost() {
   return {
     slug: 'welcome-to-blog',
     title: 'Welcome to Your Blog! 🚀',
-    description: 'Start sharing your thoughts and ideas',
+    description: 'Your posts are now permanently stored!',
     content: `# Welcome to Your Blog! 🚀
 
-This is your blog platform where you can share your thoughts, tutorials, and insights with the world.
+Great news! Your blog is now using Netlify Blobs for permanent storage.
+
+## What This Means
+
+- ✅ Posts are saved permanently
+- ✅ Data survives deployments
+- ✅ No more lost content
+- ✅ Automatic backups
 
 ## Getting Started
 
-To contribute:
 1. Login with your Lemmy account
-2. Click "New Post" to create content
-3. Share your expertise with readers
+2. Create a new post
+3. It will be saved forever!
 
-## What You Can Share
-
-- Tutorials and guides
-- Technology insights
-- Personal projects
-- Thoughts and opinions
-
-Happy blogging!`,
-    content_preview: 'Welcome to your blog! Start sharing your thoughts and ideas with the world...',
-    author: 'Admin',
+Your blog is ready for real content now.`,
+    content_preview: 'Your posts are now permanently stored in Netlify Blobs...',
+    author: 'System',
     date: formatDate(),
-    tags: ['welcome', 'getting-started'],
+    tags: ['welcome', 'netlify-blobs'],
     read_time: 1,
     word_count: 80,
     published: true,
@@ -62,11 +58,6 @@ Happy blogging!`,
     updated_at: new Date().toISOString(),
     featured: true
   };
-}
-
-// Ensure welcome post in memory
-if (memoryStore.size === 0) {
-  memoryStore.set('welcome-to-blog', createWelcomePost());
 }
 
 exports.handler = async (event, context) => {
@@ -84,55 +75,55 @@ exports.handler = async (event, context) => {
   console.log('API called:', event.httpMethod, event.path);
 
   try {
-    // Try to initialize Netlify Blobs with proper configuration
-    let store = null;
-    let usingBlobs = false;
+    // Initialize Netlify Blobs with environment variables
+    const siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+    const token = process.env.NETLIFY_AUTH_TOKEN;
     
-    // Check if we have the required environment variables for Blobs
-    const siteID = process.env.SITE_ID || process.env.NETLIFY_SITE_ID || context?.site?.id;
-    const deployID = process.env.DEPLOY_ID || process.env.NETLIFY_DEPLOY_ID;
-    
-    console.log('Environment check:', {
+    console.log('Blobs config:', {
       has_site_id: !!siteID,
-      has_deploy_id: !!deployID,
-      context_available: !!context
+      has_token: !!token,
+      site_id_preview: siteID ? siteID.substring(0, 8) + '...' : 'none'
     });
     
-    // For now, we'll use in-memory storage since Blobs isn't configured
-    // Netlify Blobs requires additional setup in the Netlify dashboard
-    console.log('Using in-memory storage (temporary)');
+    // Get store with explicit configuration
+    const store = getStore({
+      name: 'blog-posts',
+      siteID: siteID,
+      token: token
+    });
     
-    // Create storage wrapper for in-memory
-    const storage = {
-      list: async () => {
-        const keys = Array.from(memoryStore.keys());
-        return { blobs: keys.map(key => ({ key })) };
-      },
-      get: async (key) => memoryStore.get(key) || null,
-      setJSON: async (key, value) => memoryStore.set(key, value),
-      delete: async (key) => memoryStore.delete(key)
-    };
+    console.log('Netlify Blobs store initialized successfully!');
     
     // GET - List all posts
     if (event.httpMethod === 'GET') {
       const { page = 1, limit = 10, search, tag, author } = event.queryStringParameters || {};
       
-      console.log('Fetching posts with params:', { page, limit, search, tag, author });
+      // List all blobs
+      const { blobs } = await store.list();
+      console.log(`Found ${blobs.length} posts in Netlify Blobs`);
       
-      // Get all posts
-      const { blobs } = await storage.list();
-      console.log(`Found ${blobs.length} posts in storage`);
+      // If empty, create welcome post
+      if (blobs.length === 0) {
+        console.log('Creating welcome post...');
+        const welcomePost = createWelcomePost();
+        await store.setJSON(welcomePost.slug, welcomePost);
+        // Re-list
+        const updated = await store.list();
+        blobs.push(...updated.blobs);
+      }
       
       // Fetch all posts
       const allPosts = [];
       for (const blob of blobs) {
-        const postData = await storage.get(blob.key);
-        if (postData && !postData.draft) {
-          allPosts.push(postData);
+        try {
+          const postData = await store.get(blob.key, { type: 'json' });
+          if (postData && !postData.draft) {
+            allPosts.push(postData);
+          }
+        } catch (error) {
+          console.error(`Error reading ${blob.key}:`, error);
         }
       }
-      
-      console.log(`Loaded ${allPosts.length} published posts`);
       
       // Apply filters
       let filteredPosts = allPosts;
@@ -156,7 +147,7 @@ exports.handler = async (event, context) => {
         filteredPosts = filteredPosts.filter(post => post.author === author);
       }
 
-      // Sort by date
+      // Sort by date (newest first), featured first
       filteredPosts.sort((a, b) => {
         if (a.featured && !b.featured) return -1;
         if (!a.featured && b.featured) return 1;
@@ -186,8 +177,8 @@ exports.handler = async (event, context) => {
               has_prev: pageNum > 1
             },
             meta: {
-              storage_type: 'in_memory_temporary',
-              message: 'Using temporary storage. Posts will be lost on function restart.',
+              storage_type: 'netlify_blobs_permanent',
+              message: 'Using Netlify Blobs - posts are permanently stored!',
               total_stored: blobs.length
             }
           }
@@ -231,19 +222,21 @@ exports.handler = async (event, context) => {
         updated_at: new Date().toISOString()
       };
 
-      await storage.setJSON(uniqueSlug, newPost);
-      console.log('Post saved to storage:', uniqueSlug);
+      // Save to Netlify Blobs - PERMANENT!
+      await store.setJSON(uniqueSlug, newPost);
+      console.log('Post saved permanently to Netlify Blobs:', uniqueSlug);
 
       return {
         statusCode: 201,
         headers,
         body: JSON.stringify({ 
           success: true,
-          message: 'Post created successfully (temporary storage)',
+          message: 'Post created and permanently saved to Netlify Blobs!',
           data: {
             slug: uniqueSlug,
             title: newPost.title,
-            url: `/posts/${uniqueSlug}`
+            url: `/posts/${uniqueSlug}`,
+            storage: 'netlify_blobs_permanent'
           }
         })
       };
@@ -260,6 +253,11 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     console.error('API Error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     
     if (error.name === 'JsonWebTokenError') {
       return {
@@ -277,7 +275,9 @@ exports.handler = async (event, context) => {
       headers,
       body: JSON.stringify({ 
         error: 'server_error',
-        message: error.message
+        message: error.message,
+        type: error.name,
+        help: 'Check that NETLIFY_SITE_ID and NETLIFY_AUTH_TOKEN are set in environment variables'
       })
     };
   }
