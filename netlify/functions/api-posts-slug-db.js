@@ -1,5 +1,7 @@
 const jwt = require('jsonwebtoken');
-const { getStore } = require('@netlify/blobs');
+
+// Share the same memory store with api-posts-db.js
+const memoryStore = global.blogPostsMemoryStore || (global.blogPostsMemoryStore = new Map());
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -23,8 +25,25 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Get the Netlify Blobs store
-    const store = getStore('blog-posts');
+    // Try to use Netlify Blobs if available, otherwise use memory storage
+    let store;
+    let usingBlobs = false;
+    
+    try {
+      // Try to import Netlify Blobs
+      const { getStore } = require('@netlify/blobs');
+      store = getStore('blog-posts');
+      usingBlobs = true;
+      console.log('Using Netlify Blobs for storage');
+    } catch (blobError) {
+      console.log('Netlify Blobs not available, using in-memory storage');
+      // Blobs not available, use memory storage
+      store = {
+        get: async (key) => memoryStore.get(key),
+        set: async (key, value) => memoryStore.set(key, JSON.parse(value)),
+        delete: async (key) => memoryStore.delete(key)
+      };
+    }
 
     // Extract slug from path
     let slug = '';
@@ -53,8 +72,10 @@ exports.handler = async (event, context) => {
     if (event.httpMethod === 'GET') {
       
       try {
-        // Try to get the post from persistent storage
-        const postData = await store.get(slug, { type: 'json' });
+        // Try to get the post from storage
+        const postData = usingBlobs 
+          ? await store.get(slug, { type: 'json' })
+          : memoryStore.get(slug);
         
         if (postData) {
           console.log('Found post in storage:', postData.title);
@@ -89,7 +110,7 @@ exports.handler = async (event, context) => {
                   api_url: `${process.env.URL}/.netlify/functions/api-posts-slug-db/${slug}`,
                   web_url: `${process.env.URL}/posts/${slug}`,
                   edit_url: `${process.env.URL}/admin?edit=${slug}`,
-                  storage_type: 'netlify_blobs_persistent'
+                  storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
                 }
               }
             })
@@ -117,7 +138,9 @@ exports.handler = async (event, context) => {
       const decoded = verifyToken(event.headers.authorization);
       const { title, content, description, tags, isDraft } = JSON.parse(event.body);
       
-      const existingPost = await store.get(slug, { type: 'json' });
+      const existingPost = usingBlobs 
+        ? await store.get(slug, { type: 'json' })
+        : memoryStore.get(slug);
       
       if (!existingPost) {
         return {
@@ -162,8 +185,13 @@ exports.handler = async (event, context) => {
         updatedPost.content_preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
       }
 
-      await store.set(slug, JSON.stringify(updatedPost));
-      console.log('Post updated in persistent storage:', slug);
+      if (usingBlobs) {
+        await store.set(slug, JSON.stringify(updatedPost));
+        console.log('Post updated in Netlify Blobs:', slug);
+      } else {
+        memoryStore.set(slug, updatedPost);
+        console.log('Post updated in memory:', slug);
+      }
 
       return {
         statusCode: 200,
@@ -175,7 +203,7 @@ exports.handler = async (event, context) => {
             slug: slug,
             title: updatedPost.title,
             updated_at: updatedPost.updated_at,
-            storage_type: 'netlify_blobs_persistent'
+            storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
           }
         })
       };
@@ -185,7 +213,9 @@ exports.handler = async (event, context) => {
     if (event.httpMethod === 'DELETE') {
       const decoded = verifyToken(event.headers.authorization);
       
-      const existingPost = await store.get(slug, { type: 'json' });
+      const existingPost = usingBlobs 
+        ? await store.get(slug, { type: 'json' })
+        : memoryStore.get(slug);
       
       if (!existingPost) {
         return {
@@ -210,8 +240,13 @@ exports.handler = async (event, context) => {
         };
       }
 
-      await store.delete(slug);
-      console.log('Post deleted from persistent storage:', slug);
+      if (usingBlobs) {
+        await store.delete(slug);
+        console.log('Post deleted from Netlify Blobs:', slug);
+      } else {
+        memoryStore.delete(slug);
+        console.log('Post deleted from memory:', slug);
+      }
 
       return {
         statusCode: 200,
