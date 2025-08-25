@@ -1,54 +1,5 @@
 const jwt = require('jsonwebtoken');
-
-// Simple in-memory storage for now (will reset on deploy)
-let posts = [
-  {
-    slug: 'welcome-to-community',
-    title: 'Welcome to Our Community Blog!',
-    description: 'A place where Lemmy users share their thoughts and ideas',
-    content: `# Welcome to Our Community Blog!
-
-This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights.
-
-## Getting Started
-
-To contribute to our community blog:
-
-1. **Login** with your Lemmy account credentials
-2. **Click "Write Post"** to create new content  
-3. **Share your knowledge** with the community!
-
-## What You Can Share
-
-- Programming tutorials and tips
-- Technology insights and reviews  
-- Personal projects and experiences
-- Community discussions and thoughts
-- Open source project updates
-- Technical guides and how-tos
-
-## Community Guidelines
-
-- Be respectful and constructive
-- Share original content or properly attribute sources
-- Use clear, descriptive titles
-- Add relevant tags to help others find your content
-
-We're excited to see what you'll contribute to our growing community! Every post helps make this a valuable resource for Lemmy users everywhere.
-
-Happy blogging! 🚀`,
-    content_preview: 'Welcome to our community blog! This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights...',
-    author: 'Community Team',
-    date: new Date().toISOString().split('T')[0],
-    tags: ['welcome', 'community', 'getting-started'],
-    read_time: 3,
-    word_count: 180,
-    published: true,
-    draft: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  }
-];
+const { getStore } = require('@netlify/blobs');
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -72,6 +23,92 @@ function formatDate(date = new Date()) {
   return date.toISOString().split('T')[0];
 }
 
+// Initialize welcome post if none exists
+async function ensureWelcomePost(store) {
+  try {
+    const existingPost = await store.get('welcome-to-community', { type: 'json' });
+    if (existingPost) {
+      return; // Welcome post already exists
+    }
+  } catch (error) {
+    // Welcome post doesn't exist, create it
+  }
+
+  const welcomePost = {
+    slug: 'welcome-to-community',
+    title: 'Welcome to Our Community Blog! 🚀',
+    description: 'A place where Lemmy users share their thoughts, ideas, and expertise',
+    content: `# Welcome to Our Community Blog! 🚀
+
+This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights with the world.
+
+## 🌟 What Makes This Special
+
+This isn't just another blog - it's a **community-driven platform** where every Lemmy user can contribute and share their knowledge.
+
+## 🚀 Getting Started
+
+To contribute to our growing community:
+
+1. **Login** with your Lemmy account credentials from any instance
+2. **Click "Write Post"** to create new content  
+3. **Share your expertise** with fellow community members
+4. **Engage and learn** from others' contributions
+
+## 💡 What You Can Share
+
+- **Programming tutorials** and coding tips
+- **Technology insights** and product reviews  
+- **Personal projects** and development experiences
+- **Community discussions** and thoughtful opinions
+- **Open source contributions** and project updates
+- **Technical guides** and comprehensive how-tos
+- **Industry insights** and career advice
+
+## 📝 Content Guidelines
+
+To maintain a high-quality community resource:
+
+- **Be respectful and constructive** in all interactions
+- **Share original content** or properly attribute sources
+- **Use clear, descriptive titles** that help others find your content
+- **Add relevant tags** to categorize your posts effectively
+- **Write for your audience** - assume readers want to learn
+
+## 🎯 Our Mission
+
+We're building more than just a blog - we're creating a **knowledge hub** where the Lemmy community can:
+- Share expertise across different domains
+- Learn from each other's experiences
+- Build connections beyond individual instances
+- Create a lasting resource for future community members
+
+## 🤝 Join the Conversation
+
+Every post contributes to our collective knowledge base. Whether you're sharing a quick tip or writing an in-depth tutorial, your contribution matters.
+
+**Ready to get started?** Login with your Lemmy account and share something amazing with our community!
+
+---
+
+*This platform is built by the community, for the community. Happy blogging!*`,
+    content_preview: 'Welcome to our community blog! A collaborative space where Lemmy users share thoughts, tutorials, and insights. Login with your Lemmy account to start contributing...',
+    author: 'Community Team',
+    date: formatDate(),
+    tags: ['welcome', 'community', 'getting-started', 'blogging'],
+    read_time: 4,
+    word_count: 320,
+    published: true,
+    draft: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    featured: true
+  };
+
+  await store.set('welcome-to-community', JSON.stringify(welcomePost));
+  console.log('Welcome post created');
+}
+
 exports.handler = async (event, context) => {
   // CORS headers
   const headers = {
@@ -93,16 +130,40 @@ exports.handler = async (event, context) => {
   console.log('API called:', event.httpMethod, event.path);
 
   try {
+    // Get the Netlify Blobs store for blog posts
+    const store = getStore('blog-posts');
+
+    // Ensure welcome post exists
+    await ensureWelcomePost(store);
+
     // GET /api/posts-db - List all posts
     if (event.httpMethod === 'GET') {
       const { page = 1, limit = 10, search, tag, author } = event.queryStringParameters || {};
       
       console.log('GET request with params:', { page, limit, search, tag, author });
       
-      // Filter published posts
-      let filteredPosts = posts.filter(post => !post.draft);
+      // Get all posts from blob storage
+      const { blobs } = await store.list();
+      const allPosts = [];
       
-      // Apply search filter
+      console.log(`Found ${blobs.length} blob entries`);
+      
+      for (const { key } of blobs) {
+        try {
+          const postData = await store.get(key, { type: 'json' });
+          if (postData && !postData.draft) {
+            allPosts.push(postData);
+          }
+        } catch (error) {
+          console.error(`Error fetching post ${key}:`, error);
+        }
+      }
+      
+      console.log(`Loaded ${allPosts.length} published posts from storage`);
+      
+      // Apply filters
+      let filteredPosts = allPosts;
+      
       if (search) {
         const searchLower = search.toLowerCase();
         filteredPosts = filteredPosts.filter(post => 
@@ -112,20 +173,25 @@ exports.handler = async (event, context) => {
         );
       }
       
-      // Apply tag filter
       if (tag) {
         filteredPosts = filteredPosts.filter(post => 
           post.tags && post.tags.includes(tag)
         );
       }
       
-      // Apply author filter  
       if (author) {
         filteredPosts = filteredPosts.filter(post => post.author === author);
       }
 
-      // Sort by date (newest first)
-      filteredPosts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      // Sort by date (newest first), but keep featured posts at top
+      filteredPosts.sort((a, b) => {
+        // Featured posts first
+        if (a.featured && !b.featured) return -1;
+        if (!a.featured && b.featured) return 1;
+        
+        // Then by date
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
 
       // Pagination
       const pageNum = parseInt(page);
@@ -155,6 +221,10 @@ exports.handler = async (event, context) => {
               search: search || null,
               tag: tag || null,
               author: author || null
+            },
+            meta: {
+              total_stored_posts: blobs.length,
+              storage_type: 'netlify_blobs'
             }
           }
         })
@@ -204,26 +274,32 @@ exports.handler = async (event, context) => {
         draft: isDraft,
         published: !isDraft,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        author_info: {
+          username: decoded.username,
+          instance: decoded.instance,
+          lemmy_user_id: decoded.lemmyUserId
+        }
       };
 
-      // Add to beginning of posts array
-      posts.unshift(newPost);
+      // Store in Netlify Blobs - this persists permanently!
+      await store.set(uniqueSlug, JSON.stringify(newPost));
       
-      console.log('Post created successfully:', uniqueSlug);
+      console.log('Post saved to persistent storage:', uniqueSlug);
 
       return {
         statusCode: 201,
         headers,
         body: JSON.stringify({ 
           success: true,
-          message: 'Post created successfully',
+          message: 'Post created and saved permanently',
           data: {
             slug: uniqueSlug,
             title: title,
             author: newPost.author,
             status: isDraft ? 'draft' : 'published',
             created_at: newPost.created_at,
+            storage_type: 'netlify_blobs_persistent',
             url: `${process.env.URL || ''}/posts/${uniqueSlug}`,
             api_url: `${process.env.URL || ''}/.netlify/functions/api-posts-slug-db/${uniqueSlug}`
           }
