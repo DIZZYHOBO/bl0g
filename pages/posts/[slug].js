@@ -1,378 +1,268 @@
-const jwt = require('jsonwebtoken');
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import { MDXRemote } from 'next-mdx-remote';
+import { serialize } from 'next-mdx-remote/serialize';
+import Head from 'next/head';
+import Link from 'next/link';
+import ArrowIcon from '../../components/ArrowIcon';
+import CustomImage from '../../components/CustomImage';
+import CustomLink from '../../components/CustomLink';
+import Footer from '../../components/Footer';
+import Header from '../../components/Header';
+import Layout, { GradientBackground } from '../../components/Layout';
+import SEO from '../../components/SEO';
+import { getGlobalData } from '../../utils/global-data';
 
-// Simple in-memory storage as fallback
-// IMPORTANT: Share this store across all functions
-if (!global.blogPostsMemoryStore) {
-  global.blogPostsMemoryStore = new Map();
-}
-const memoryStore = global.blogPostsMemoryStore;
-
-function verifyToken(authHeader) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Invalid authorization header');
-  }
-  
-  const token = authHeader.substring(7);
-  return jwt.verify(token, process.env.JWT_SECRET);
-}
-
-function generateSlug(title) {
-  return title
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .trim();
-}
-
-function formatDate(date = new Date()) {
-  return date.toISOString().split('T')[0];
-}
-
-// Initialize welcome post if none exists
-async function ensureWelcomePost() {
-  const welcomeSlug = 'welcome-to-community';
-  
-  if (memoryStore.has(welcomeSlug)) {
-    return;
-  }
-
-  const welcomePost = {
-    slug: welcomeSlug,
-    title: 'Welcome to Our Community Blog! 🚀',
-    description: 'A place where Lemmy users share their thoughts, ideas, and expertise',
-    content: `# Welcome to Our Community Blog! 🚀
-
-This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights with the world.
-
-## 🌟 What Makes This Special
-
-This isn't just another blog - it's a **community-driven platform** where every Lemmy user can contribute and share their knowledge.
-
-## 🚀 Getting Started
-
-To contribute to our growing community:
-
-1. **Login** with your Lemmy account credentials from any instance
-2. **Click "Write Post"** to create new content  
-3. **Share your expertise** with fellow community members
-4. **Engage and learn** from others' contributions
-
-## 💡 What You Can Share
-
-- **Programming tutorials** and coding tips
-- **Technology insights** and product reviews  
-- **Personal projects** and development experiences
-- **Community discussions** and thoughtful opinions
-- **Open source contributions** and project updates
-- **Technical guides** and comprehensive how-tos
-- **Industry insights** and career advice
-
-## 📝 Content Guidelines
-
-To maintain a high-quality community resource:
-
-- **Be respectful and constructive** in all interactions
-- **Share original content** or properly attribute sources
-- **Use clear, descriptive titles** that help others find your content
-- **Add relevant tags** to categorize your posts effectively
-- **Write for your audience** - assume readers want to learn
-
-## 🎯 Our Mission
-
-We're building more than just a blog - we're creating a **knowledge hub** where the Lemmy community can:
-- Share expertise across different domains
-- Learn from each other's experiences
-- Build connections beyond individual instances
-- Create a lasting resource for future community members
-
-## 🤝 Join the Conversation
-
-Every post contributes to our collective knowledge base. Whether you're sharing a quick tip or writing an in-depth tutorial, your contribution matters.
-
-**Ready to get started?** Login with your Lemmy account and share something amazing with our community!
-
----
-
-*This platform is built by the community, for the community. Happy blogging!*`,
-    content_preview: 'Welcome to our community blog! A collaborative space where Lemmy users share thoughts, tutorials, and insights. Login with your Lemmy account to start contributing...',
-    author: 'Community Team',
-    date: formatDate(),
-    tags: ['welcome', 'community', 'getting-started', 'blogging'],
-    read_time: 4,
-    word_count: 320,
-    published: true,
-    draft: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    featured: true
-  };
-
-  memoryStore.set(welcomeSlug, welcomePost);
-  console.log('Welcome post created in memory');
-}
-
-exports.handler = async (event, context) => {
-  // CORS headers
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Content-Type': 'application/json',
-  };
-
-  // Handle preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return { 
-      statusCode: 200, 
-      headers, 
-      body: '' 
-    };
-  }
-
-  console.log('API called:', event.httpMethod, event.path);
-
-  try {
-    // Try to use Netlify Blobs if available, otherwise use memory storage
-    let store;
-    let usingBlobs = false;
-    
-    try {
-      // Try to import Netlify Blobs
-      const { getStore } = require('@netlify/blobs');
-      store = getStore('blog-posts');
-      usingBlobs = true;
-      console.log('Using Netlify Blobs for storage');
-    } catch (blobError) {
-      console.log('Netlify Blobs not available, using in-memory storage');
-      // Blobs not available, use memory storage
-      store = {
-        list: async () => ({ blobs: Array.from(memoryStore.keys()).map(key => ({ key })) }),
-        get: async (key) => memoryStore.get(key),
-        set: async (key, value) => memoryStore.set(key, JSON.parse(value)),
-        delete: async (key) => memoryStore.delete(key)
-      };
-    }
-
-    // Ensure welcome post exists
-    await ensureWelcomePost();
-
-    // GET /api/posts-db - List all posts
-    if (event.httpMethod === 'GET') {
-      const { page = 1, limit = 10, search, tag, author } = event.queryStringParameters || {};
-      
-      console.log('GET request with params:', { page, limit, search, tag, author });
-      
-      // Get all posts
-      const allPosts = [];
-      
-      if (usingBlobs) {
-        const { blobs } = await store.list();
-        console.log(`Found ${blobs.length} blob entries`);
-        
-        for (const { key } of blobs) {
-          try {
-            const postData = await store.get(key, { type: 'json' });
-            if (postData && !postData.draft) {
-              allPosts.push(postData);
-            }
-          } catch (error) {
-            console.error(`Error fetching post ${key}:`, error);
-          }
-        }
-      } else {
-        // Using memory storage
-        for (const [key, postData] of memoryStore.entries()) {
-          if (postData && !postData.draft) {
-            allPosts.push(postData);
-          }
-        }
-      }
-      
-      console.log(`Loaded ${allPosts.length} published posts from storage`);
-      
-      // Apply filters
-      let filteredPosts = allPosts;
-      
-      if (search) {
-        const searchLower = search.toLowerCase();
-        filteredPosts = filteredPosts.filter(post => 
-          post.title.toLowerCase().includes(searchLower) ||
-          post.description.toLowerCase().includes(searchLower) ||
-          post.content.toLowerCase().includes(searchLower)
-        );
-      }
-      
-      if (tag) {
-        filteredPosts = filteredPosts.filter(post => 
-          post.tags && post.tags.includes(tag)
-        );
-      }
-      
-      if (author) {
-        filteredPosts = filteredPosts.filter(post => post.author === author);
-      }
-
-      // Sort by date (newest first), but keep featured posts at top
-      filteredPosts.sort((a, b) => {
-        // Featured posts first
-        if (a.featured && !b.featured) return -1;
-        if (!a.featured && b.featured) return 1;
-        
-        // Then by date
-        return new Date(b.created_at) - new Date(a.created_at);
-      });
-
-      // Pagination
-      const pageNum = parseInt(page);
-      const limitNum = Math.min(parseInt(limit), 50);
-      const startIndex = (pageNum - 1) * limitNum;
-      const endIndex = startIndex + limitNum;
-      const paginatedPosts = filteredPosts.slice(startIndex, endIndex);
-
-      console.log(`Returning ${paginatedPosts.length} posts out of ${filteredPosts.length} total`);
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          data: {
-            posts: paginatedPosts,
-            pagination: {
-              current_page: pageNum,
-              per_page: limitNum,
-              total_posts: filteredPosts.length,
-              total_pages: Math.ceil(filteredPosts.length / limitNum),
-              has_next: endIndex < filteredPosts.length,
-              has_prev: pageNum > 1
-            },
-            filters: {
-              search: search || null,
-              tag: tag || null,
-              author: author || null
-            },
-            meta: {
-              total_stored_posts: allPosts.length,
-              storage_type: usingBlobs ? 'netlify_blobs' : 'in_memory',
-              note: usingBlobs ? 'Using persistent Netlify Blobs storage' : 'Using temporary in-memory storage (posts will be lost on restart)'
-            }
-          }
-        })
-      };
-    }
-
-    // POST /api/posts-db - Create new post
-    if (event.httpMethod === 'POST') {
-      console.log('POST request received');
-      
-      const decoded = verifyToken(event.headers.authorization);
-      const { title, content, description, tags, isDraft = false } = JSON.parse(event.body);
-      
-      console.log('Creating post:', { title, isDraft, author: `${decoded.username}@${decoded.instance}` });
-      
-      if (!title || !content) {
-        return {
-          statusCode: 400,
-          headers,
-          body: JSON.stringify({ 
-            error: 'validation_error',
-            message: 'Title and content are required',
-            required_fields: ['title', 'content']
-          })
-        };
-      }
-
-      const slug = generateSlug(title);
-      const timestamp = Date.now();
-      const uniqueSlug = `${slug}-${timestamp}`;
-      
-      // Calculate read time
-      const wordCount = content.split(/\s+/).length;
-      const readTime = Math.ceil(wordCount / 200);
-      
-      const newPost = {
-        slug: uniqueSlug,
-        title: title,
-        description: description || '',
-        content: content,
-        content_preview: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
-        author: `${decoded.username}@${decoded.instance}`,
-        date: formatDate(),
-        tags: Array.isArray(tags) ? tags : (tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : []),
-        read_time: readTime,
-        word_count: wordCount,
-        draft: isDraft,
-        published: !isDraft,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        author_info: {
-          username: decoded.username,
-          instance: decoded.instance,
-          lemmy_user_id: decoded.lemmyUserId
-        }
-      };
-
-      // Store the post
-      if (usingBlobs) {
-        await store.set(uniqueSlug, JSON.stringify(newPost));
-        console.log('Post saved to Netlify Blobs:', uniqueSlug);
-      } else {
-        memoryStore.set(uniqueSlug, newPost);
-        console.log('Post saved to memory:', uniqueSlug);
-      }
-
-      return {
-        statusCode: 201,
-        headers,
-        body: JSON.stringify({ 
-          success: true,
-          message: usingBlobs ? 'Post created and saved permanently' : 'Post created (temporary storage)',
-          data: {
-            slug: uniqueSlug,
-            title: title,
-            author: newPost.author,
-            status: isDraft ? 'draft' : 'published',
-            created_at: newPost.created_at,
-            storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary',
-            url: `${process.env.URL || ''}/posts/${uniqueSlug}`,
-            api_url: `${process.env.URL || ''}/.netlify/functions/api-posts-slug-db/${uniqueSlug}`
-          }
-        })
-      };
-    }
-
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ 
-        error: 'method_not_allowed',
-        message: `Method ${event.httpMethod} not supported`
-      })
-    };
-
-  } catch (error) {
-    console.error('API Error:', error);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return {
-        statusCode: 401,
-        headers,
-        body: JSON.stringify({
-          error: 'unauthorized',
-          message: 'Invalid token'
-        })
-      };
-    }
-
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ 
-        error: 'server_error',
-        message: 'Internal server error',
-        details: error.message
-      })
-    };
-  }
+// Custom components for MDX
+const components = {
+  a: CustomLink,
+  Head,
+  img: CustomImage,
 };
+
+// Main component - this MUST be the default export
+function PostPage({ globalData }) {
+  const router = useRouter();
+  const { slug } = router.query;
+  const [post, setPost] = useState(null);
+  const [mdxSource, setMdxSource] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!slug) return;
+
+    const fetchPost = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        
+        console.log('Fetching post with slug:', slug);
+        
+        // Use the simpler API endpoint path
+        const response = await fetch(`/.netlify/functions/api-post-by-slug?slug=${slug}`);
+        
+        console.log('Response status:', response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Post data received:', data);
+          
+          if (data.success && data.data?.post) {
+            const postData = data.data.post;
+            setPost(postData);
+            
+            // Serialize MDX content
+            try {
+              const mdx = await serialize(postData.content || '# Post Content\n\nContent not available.');
+              setMdxSource(mdx);
+            } catch (mdxError) {
+              console.error('Error serializing MDX:', mdxError);
+              // Fallback to plain text if MDX fails
+              setMdxSource({
+                compiledSource: '',
+                frontmatter: {},
+                scope: {},
+                rawContent: postData.content
+              });
+            }
+          } else {
+            setError('Post not found');
+          }
+        } else if (response.status === 404) {
+          setError('Post not found');
+        } else {
+          const errorData = await response.json();
+          setError(errorData.message || 'Failed to load post');
+        }
+      } catch (err) {
+        console.error('Error fetching post:', err);
+        setError('Failed to load post. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPost();
+  }, [slug]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <Header name={globalData.name} />
+        <div className="text-center py-20">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <div>Loading post...</div>
+        </div>
+        <Footer copyrightText={globalData.footerText} />
+      </Layout>
+    );
+  }
+
+  if (error || !post) {
+    return (
+      <Layout>
+        <SEO title={`Post Not Found - ${globalData.name}`} description="The requested post could not be found" />
+        <Header name={globalData.name} />
+        <div className="text-center py-20">
+          <div className="text-6xl mb-4">📄</div>
+          <h1 className="text-3xl font-bold mb-4">Post Not Found</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
+            {error || "The post you're looking for doesn't exist or has been moved."}
+          </p>
+          <Link 
+            href="/"
+            className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
+          >
+            ← Back to Home
+          </Link>
+        </div>
+        <Footer copyrightText={globalData.footerText} />
+      </Layout>
+    );
+  }
+
+  // If MDX failed to serialize, show plain content
+  const renderContent = () => {
+    if (mdxSource && mdxSource.compiledSource) {
+      return <MDXRemote {...mdxSource} components={components} />;
+    } else if (post.content) {
+      // Fallback: render as plain text with basic formatting
+      return (
+        <div className="whitespace-pre-wrap">
+          {post.content.split('\n').map((paragraph, index) => {
+            // Handle headers
+            if (paragraph.startsWith('# ')) {
+              return <h1 key={index} className="text-3xl font-bold mb-4 mt-6">{paragraph.replace(/^# /, '')}</h1>;
+            } else if (paragraph.startsWith('## ')) {
+              return <h2 key={index} className="text-2xl font-bold mb-3 mt-5">{paragraph.replace(/^## /, '')}</h2>;
+            } else if (paragraph.startsWith('### ')) {
+              return <h3 key={index} className="text-xl font-bold mb-2 mt-4">{paragraph.replace(/^### /, '')}</h3>;
+            } else if (paragraph.startsWith('- ')) {
+              return <li key={index} className="ml-6 mb-1">{paragraph.replace(/^- /, '')}</li>;
+            } else if (paragraph.trim() === '') {
+              return <br key={index} />;
+            } else {
+              return <p key={index} className="mb-4">{paragraph}</p>;
+            }
+          })}
+        </div>
+      );
+    } else {
+      return <p className="text-center text-gray-500">Content not available</p>;
+    }
+  };
+
+  return (
+    <Layout>
+      <SEO
+        title={`${post.title} - ${globalData.name}`}
+        description={post.description || post.content_preview}
+      />
+      <Header name={globalData.name} />
+      
+      <article className="px-6 md:px-0 max-w-4xl mx-auto">
+        <header className="mb-8">
+          {/* Back to Home Link */}
+          <Link 
+            href="/"
+            className="inline-flex items-center text-primary hover:text-primary/80 mb-6 transition-colors"
+          >
+            <ArrowIcon className="rotate-180 mr-2 w-4 h-4" />
+            Back to Community Posts
+          </Link>
+
+          {/* Post Meta */}
+          <div className="mb-6">
+            {post.date && (
+              <p className="text-sm font-bold uppercase opacity-60 mb-2">
+                {new Date(post.date).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </p>
+            )}
+            {post.author && (
+              <p className="text-primary font-medium mb-4">
+                By {post.author}
+              </p>
+            )}
+            {post.tags && post.tags.length > 0 && (
+              <div className="flex gap-2 flex-wrap mb-4">
+                {post.tags.map((tag, i) => (
+                  <span 
+                    key={i}
+                    className="px-3 py-1 text-sm bg-primary/20 text-primary rounded-full"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Title */}
+          <h1 className="text-3xl md:text-5xl font-bold mb-6 dark:text-white">
+            {post.title}
+          </h1>
+          
+          {/* Description */}
+          {post.description && (
+            <p className="text-xl text-gray-600 dark:text-gray-400 mb-8">
+              {post.description}
+            </p>
+          )}
+
+          {/* Read Time */}
+          {post.read_time && (
+            <p className="text-sm opacity-60 mb-8">
+              📖 {post.read_time} min read • {post.word_count} words
+            </p>
+          )}
+        </header>
+
+        {/* Post Content */}
+        <main>
+          <article className="prose prose-lg dark:prose-invert max-w-none">
+            {renderContent()}
+          </article>
+        </main>
+
+        {/* Back to Home Footer */}
+        <footer className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 text-center">
+          <Link 
+            href="/"
+            className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
+          >
+            ← Back to Community Posts
+          </Link>
+        </footer>
+      </article>
+
+      <Footer copyrightText={globalData.footerText} />
+      <GradientBackground
+        variant="large"
+        className="absolute -top-32 opacity-30 dark:opacity-50"
+      />
+      <GradientBackground
+        variant="small"
+        className="absolute bottom-0 opacity-20 dark:opacity-10"
+      />
+    </Layout>
+  );
+}
+
+// CRITICAL: Export PostPage as default
+export default PostPage;
+
+// Use getServerSideProps for dynamic content
+export async function getServerSideProps(context) {
+  const globalData = getGlobalData();
+  
+  return {
+    props: {
+      globalData,
+    },
+  };
+}
