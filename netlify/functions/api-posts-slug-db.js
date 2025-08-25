@@ -29,18 +29,33 @@ exports.handler = async (event, context) => {
       siteID: context.site?.id,
     });
 
-    // Extract slug from query parameters
-    const slug = event.queryStringParameters?.slug;
+    // Extract slug from query parameters FIRST (for client-side requests)
+    let slug = '';
+    
+    if (event.queryStringParameters && event.queryStringParameters.slug) {
+      slug = event.queryStringParameters.slug;
+    } 
+    // Then check path parameters (for Netlify routing)
+    else if (event.pathParameters && event.pathParameters.slug) {
+      slug = event.pathParameters.slug;
+    } 
+    // Finally try to extract from path
+    else {
+      const pathParts = event.path.split('/');
+      slug = pathParts[pathParts.length - 1];
+    }
+    
+    slug = slug.split('?')[0]; // Remove any remaining query parameters
     
     console.log('Looking for post with slug:', slug);
 
-    if (!slug) {
+    if (!slug || slug === 'api-posts-slug-db') {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           error: 'bad_request',
-          message: 'Post slug is required'
+          message: 'Post slug is required as query parameter: ?slug=your-post-slug'
         })
       };
     }
@@ -81,7 +96,7 @@ exports.handler = async (event, context) => {
               data: {
                 post: postData,
                 meta: {
-                  api_url: `${process.env.URL}/.netlify/functions/api-post-by-slug?slug=${slug}`,
+                  api_url: `${process.env.URL}/.netlify/functions/api-posts-slug-db?slug=${slug}`,
                   web_url: `${process.env.URL}/posts/${slug}`,
                   edit_url: `${process.env.URL}/admin?edit=${slug}`,
                   storage_type: 'netlify_blobs_persistent'
