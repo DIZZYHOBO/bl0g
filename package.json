@@ -41,6 +41,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@netlify/blobs": "^8.1.0",
     "@stackbit/cms-git": "^1.0.32",
     "@stackbit/types": "^2.0.1",
     "@tailwindcss/postcss": "^4.0.16",
@@ -52,10 +53,4 @@
     "typescript": "^5.1.3"
   },
   "license": "MIT"
-}
-{
-  "dependencies": {
-    "@netlify/blobs": "^8.1.0",
-    "existing dependencies...": "..."
-  }
 }
