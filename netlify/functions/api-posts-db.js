@@ -1,5 +1,21 @@
 const jwt = require('jsonwebtoken');
-const { getStore } = require('@netlify/blobs');
+
+// In-memory storage as fallback
+if (!global.blogPostsMemoryStore) {
+  global.blogPostsMemoryStore = new Map();
+}
+const memoryStore = global.blogPostsMemoryStore;
+
+// Try to load Netlify Blobs if available
+let getStore;
+try {
+  const blobsModule = require('@netlify/blobs');
+  getStore = blobsModule.getStore;
+  console.log('Netlify Blobs module loaded successfully');
+} catch (error) {
+  console.log('Netlify Blobs not available, using memory storage');
+  getStore = null;
+}
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -23,19 +39,29 @@ function formatDate(date = new Date()) {
   return date.toISOString().split('T')[0];
 }
 
-// Initialize welcome post if none exists
-async function ensureWelcomePost(store) {
+// Initialize welcome post
+async function ensureWelcomePost(store, isBlobs) {
   const welcomeSlug = 'welcome-to-community';
   
   try {
-    // Check if welcome post already exists
-    const existingPost = await store.get(welcomeSlug);
-    if (existingPost) {
+    // Check if welcome post exists
+    let exists = false;
+    if (isBlobs) {
+      try {
+        const post = await store.get(welcomeSlug);
+        exists = !!post;
+      } catch (e) {
+        exists = false;
+      }
+    } else {
+      exists = memoryStore.has(welcomeSlug);
+    }
+    
+    if (exists) {
       console.log('Welcome post already exists');
       return;
     }
   } catch (error) {
-    // Post doesn't exist, create it
     console.log('Creating welcome post...');
   }
 
@@ -91,7 +117,11 @@ To contribute:
   };
 
   try {
-    await store.set(welcomeSlug, welcomePost);
+    if (isBlobs) {
+      await store.set(welcomeSlug, welcomePost);
+    } else {
+      memoryStore.set(welcomeSlug, welcomePost);
+    }
     console.log('Welcome post created successfully');
   } catch (error) {
     console.error('Error creating welcome post:', error);
@@ -119,15 +149,58 @@ exports.handler = async (event, context) => {
   console.log('API called:', event.httpMethod, event.path);
 
   try {
-    // Get the Netlify Blobs store
-    // This will automatically use the Netlify Blobs infrastructure
-    const store = getStore({
-      name: 'blog-posts',
-      siteID: context.site?.id, // Use the site ID from context if available
-    });
+    // Initialize storage
+    let store;
+    let usingBlobs = false;
+    
+    // Try to use Netlify Blobs if available
+    if (getStore && context.site) {
+      try {
+        store = getStore({
+          name: 'blog-posts',
+          siteID: context.site.id,
+        });
+        usingBlobs = true;
+        console.log('Using Netlify Blobs for storage');
+      } catch (blobError) {
+        console.log('Failed to initialize Netlify Blobs:', blobError.message);
+        store = null;
+        usingBlobs = false;
+      }
+    }
+    
+    // Create wrapper for consistent API
+    const storage = usingBlobs ? {
+      list: async () => {
+        try {
+          const result = await store.list();
+          return { blobs: result.blobs || [] };
+        } catch (e) {
+          console.error('Blobs list error:', e);
+          return { blobs: [] };
+        }
+      },
+      get: async (key) => {
+        try {
+          return await store.get(key);
+        } catch (e) {
+          if (e.message?.includes('404')) return null;
+          throw e;
+        }
+      },
+      set: async (key, value) => store.set(key, value),
+      delete: async (key) => store.delete(key)
+    } : {
+      list: async () => ({ 
+        blobs: Array.from(memoryStore.keys()).map(key => ({ key })) 
+      }),
+      get: async (key) => memoryStore.get(key) || null,
+      set: async (key, value) => memoryStore.set(key, value),
+      delete: async (key) => memoryStore.delete(key)
+    };
 
     // Ensure welcome post exists
-    await ensureWelcomePost(store);
+    await ensureWelcomePost(storage, usingBlobs);
 
     // GET /api/posts-db - List all posts
     if (event.httpMethod === 'GET') {
@@ -135,16 +208,16 @@ exports.handler = async (event, context) => {
       
       console.log('GET request with params:', { page, limit, search, tag, author });
       
-      // Get all posts from blob storage
-      const { blobs } = await store.list();
+      // Get all posts
+      const { blobs } = await storage.list();
       const allPosts = [];
       
-      console.log(`Found ${blobs.length} blob entries`);
+      console.log(`Found ${blobs.length} entries in storage`);
       
       // Fetch all posts
       for (const blob of blobs) {
         try {
-          const postData = await store.get(blob.key);
+          const postData = await storage.get(blob.key);
           if (postData && !postData.draft) {
             allPosts.push(postData);
           }
@@ -153,7 +226,7 @@ exports.handler = async (event, context) => {
         }
       }
       
-      console.log(`Loaded ${allPosts.length} published posts from Netlify Blobs`);
+      console.log(`Loaded ${allPosts.length} published posts`);
       
       // Apply filters
       let filteredPosts = allPosts;
@@ -179,13 +252,11 @@ exports.handler = async (event, context) => {
 
       // Sort by date (newest first), but keep featured posts at top
       filteredPosts.sort((a, b) => {
-        // Featured posts first
         if (a.featured && !b.featured) return -1;
         if (!a.featured && b.featured) return 1;
         
-        // Then by date
-        const dateA = new Date(a.created_at || a.date);
-        const dateB = new Date(b.created_at || b.date);
+        const dateA = new Date(a.created_at || a.date || 0);
+        const dateB = new Date(b.created_at || b.date || 0);
         return dateB - dateA;
       });
 
@@ -220,7 +291,7 @@ exports.handler = async (event, context) => {
             },
             meta: {
               total_stored_posts: blobs.length,
-              storage_type: 'netlify_blobs_persistent'
+              storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
             }
           }
         })
@@ -278,26 +349,26 @@ exports.handler = async (event, context) => {
         }
       };
 
-      // Store in Netlify Blobs - this persists permanently!
-      await store.set(uniqueSlug, newPost);
+      // Store the post
+      await storage.set(uniqueSlug, newPost);
       
-      console.log('Post saved to Netlify Blobs:', uniqueSlug);
+      console.log(`Post saved to ${usingBlobs ? 'Netlify Blobs' : 'memory'}:`, uniqueSlug);
 
       return {
         statusCode: 201,
         headers,
         body: JSON.stringify({ 
           success: true,
-          message: 'Post created and saved permanently to Netlify Blobs',
+          message: `Post created and saved ${usingBlobs ? 'permanently to Netlify Blobs' : 'temporarily in memory'}`,
           data: {
             slug: uniqueSlug,
             title: title,
             author: newPost.author,
             status: isDraft ? 'draft' : 'published',
             created_at: newPost.created_at,
-            storage_type: 'netlify_blobs_persistent',
+            storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary',
             url: `${process.env.URL || ''}/posts/${uniqueSlug}`,
-            api_url: `${process.env.URL || ''}/.netlify/functions/api-post-by-slug?slug=${uniqueSlug}`
+            api_url: `${process.env.URL || ''}/.netlify/functions/api-posts-slug-db?slug=${uniqueSlug}`
           }
         })
       };
@@ -314,6 +385,7 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     console.error('API Error:', error);
+    console.error('Error stack:', error.stack);
     
     if (error.name === 'JsonWebTokenError') {
       return {
@@ -333,7 +405,8 @@ exports.handler = async (event, context) => {
         error: 'server_error',
         message: 'Internal server error',
         details: error.message,
-        storage_note: 'Ensure @netlify/blobs is installed: npm install @netlify/blobs'
+        type: error.name,
+        storage_info: 'Check if @netlify/blobs is installed and Netlify Blobs is enabled for your site'
       })
     };
   }
