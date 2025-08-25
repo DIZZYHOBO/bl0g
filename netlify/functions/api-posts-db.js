@@ -1,8 +1,11 @@
 const jwt = require('jsonwebtoken');
 
 // Simple in-memory storage as fallback
-// In production, you'd want to use a proper database
-const memoryStore = new Map();
+// IMPORTANT: Share this store across all functions
+if (!global.blogPostsMemoryStore) {
+  global.blogPostsMemoryStore = new Map();
+}
+const memoryStore = global.blogPostsMemoryStore;
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
