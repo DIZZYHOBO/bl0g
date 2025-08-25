@@ -1,297 +1,268 @@
-const jwt = require('jsonwebtoken');
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import { MDXRemote } from 'next-mdx-remote';
+import { serialize } from 'next-mdx-remote/serialize';
+import Head from 'next/head';
+import Link from 'next/link';
+import ArrowIcon from '../../components/ArrowIcon';
+import CustomImage from '../../components/CustomImage';
+import CustomLink from '../../components/CustomLink';
+import Footer from '../../components/Footer';
+import Header from '../../components/Header';
+import Layout, { GradientBackground } from '../../components/Layout';
+import SEO from '../../components/SEO';
+import { getGlobalData } from '../../utils/global-data';
 
-// Share the same memory store with api-posts-db.js
-const memoryStore = global.blogPostsMemoryStore || (global.blogPostsMemoryStore = new Map());
+// Custom components for MDX
+const components = {
+  a: CustomLink,
+  Head,
+  img: CustomImage,
+};
 
-function verifyToken(authHeader) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Invalid authorization header');
+// Main component - this MUST be the default export
+function PostPage({ globalData }) {
+  const router = useRouter();
+  const { slug } = router.query;
+  const [post, setPost] = useState(null);
+  const [mdxSource, setMdxSource] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!slug) return;
+
+    const fetchPost = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        
+        console.log('Fetching post with slug:', slug);
+        
+        // Use the correct API endpoint path
+        const response = await fetch(`/.netlify/functions/api-posts-slug-db?slug=${slug}`);
+        
+        console.log('Response status:', response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Post data received:', data);
+          
+          if (data.success && data.data?.post) {
+            const postData = data.data.post;
+            setPost(postData);
+            
+            // Serialize MDX content
+            try {
+              const mdx = await serialize(postData.content || '# Post Content\n\nContent not available.');
+              setMdxSource(mdx);
+            } catch (mdxError) {
+              console.error('Error serializing MDX:', mdxError);
+              // Fallback to plain text if MDX fails
+              setMdxSource({
+                compiledSource: '',
+                frontmatter: {},
+                scope: {},
+                rawContent: postData.content
+              });
+            }
+          } else {
+            setError('Post not found');
+          }
+        } else if (response.status === 404) {
+          setError('Post not found');
+        } else {
+          const errorData = await response.json();
+          setError(errorData.message || 'Failed to load post');
+        }
+      } catch (err) {
+        console.error('Error fetching post:', err);
+        setError('Failed to load post. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPost();
+  }, [slug]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <Header name={globalData.name} />
+        <div className="text-center py-20">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <div>Loading post...</div>
+        </div>
+        <Footer copyrightText={globalData.footerText} />
+      </Layout>
+    );
   }
-  
-  const token = authHeader.substring(7);
-  return jwt.verify(token, process.env.JWT_SECRET);
-}
 
-exports.handler = async (event, context) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
-    'Content-Type': 'application/json',
+  if (error || !post) {
+    return (
+      <Layout>
+        <SEO title={`Post Not Found - ${globalData.name}`} description="The requested post could not be found" />
+        <Header name={globalData.name} />
+        <div className="text-center py-20">
+          <div className="text-6xl mb-4">📄</div>
+          <h1 className="text-3xl font-bold mb-4">Post Not Found</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
+            {error || "The post you're looking for doesn't exist or has been moved."}
+          </p>
+          <Link 
+            href="/"
+            className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
+          >
+            ← Back to Home
+          </Link>
+        </div>
+        <Footer copyrightText={globalData.footerText} />
+      </Layout>
+    );
+  }
+
+  // If MDX failed to serialize, show plain content
+  const renderContent = () => {
+    if (mdxSource && mdxSource.compiledSource) {
+      return <MDXRemote {...mdxSource} components={components} />;
+    } else if (post.content) {
+      // Fallback: render as plain text with basic formatting
+      return (
+        <div className="whitespace-pre-wrap">
+          {post.content.split('\n').map((paragraph, index) => {
+            // Handle headers
+            if (paragraph.startsWith('# ')) {
+              return <h1 key={index} className="text-3xl font-bold mb-4 mt-6">{paragraph.replace(/^# /, '')}</h1>;
+            } else if (paragraph.startsWith('## ')) {
+              return <h2 key={index} className="text-2xl font-bold mb-3 mt-5">{paragraph.replace(/^## /, '')}</h2>;
+            } else if (paragraph.startsWith('### ')) {
+              return <h3 key={index} className="text-xl font-bold mb-2 mt-4">{paragraph.replace(/^### /, '')}</h3>;
+            } else if (paragraph.startsWith('- ')) {
+              return <li key={index} className="ml-6 mb-1">{paragraph.replace(/^- /, '')}</li>;
+            } else if (paragraph.trim() === '') {
+              return <br key={index} />;
+            } else {
+              return <p key={index} className="mb-4">{paragraph}</p>;
+            }
+          })}
+        </div>
+      );
+    } else {
+      return <p className="text-center text-gray-500">Content not available</p>;
+    }
   };
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
-  }
-
-  try {
-    // Try to use Netlify Blobs if available, otherwise use memory storage
-    let store;
-    let usingBlobs = false;
-    
-    try {
-      // Try to import Netlify Blobs
-      const { getStore } = require('@netlify/blobs');
-      store = getStore('blog-posts');
-      usingBlobs = true;
-      console.log('Using Netlify Blobs for storage');
-    } catch (blobError) {
-      console.log('Netlify Blobs not available, using in-memory storage');
-      // Blobs not available, use memory storage
-      store = {
-        get: async (key) => memoryStore.get(key),
-        set: async (key, value) => memoryStore.set(key, JSON.parse(value)),
-        delete: async (key) => memoryStore.delete(key)
-      };
-    }
-
-    // Extract slug from path
-    let slug = '';
-    if (event.pathParameters && event.pathParameters.slug) {
-      slug = event.pathParameters.slug;
-    } else {
-      const pathParts = event.path.split('/');
-      slug = pathParts[pathParts.length - 1];
-    }
-    slug = slug.split('?')[0]; // Remove query parameters
-    
-    console.log('Looking for post with slug:', slug);
-
-    if (!slug) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          error: 'bad_request',
-          message: 'Post slug is required'
-        })
-      };
-    }
-
-    // GET /api/posts-slug-db/:slug - Get specific post
-    if (event.httpMethod === 'GET') {
+  return (
+    <Layout>
+      <SEO
+        title={`${post.title} - ${globalData.name}`}
+        description={post.description || post.content_preview}
+      />
+      <Header name={globalData.name} />
       
-      try {
-        // Try to get the post from storage
-        const postData = usingBlobs 
-          ? await store.get(slug, { type: 'json' })
-          : memoryStore.get(slug);
-        
-        if (postData) {
-          console.log('Found post in storage:', postData.title);
+      <article className="px-6 md:px-0 max-w-4xl mx-auto">
+        <header className="mb-8">
+          {/* Back to Home Link */}
+          <Link 
+            href="/"
+            className="inline-flex items-center text-primary hover:text-primary/80 mb-6 transition-colors"
+          >
+            <ArrowIcon className="rotate-180 mr-2 w-4 h-4" />
+            Back to Community Posts
+          </Link>
+
+          {/* Post Meta */}
+          <div className="mb-6">
+            {post.date && (
+              <p className="text-sm font-bold uppercase opacity-60 mb-2">
+                {new Date(post.date).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </p>
+            )}
+            {post.author && (
+              <p className="text-primary font-medium mb-4">
+                By {post.author}
+              </p>
+            )}
+            {post.tags && post.tags.length > 0 && (
+              <div className="flex gap-2 flex-wrap mb-4">
+                {post.tags.map((tag, i) => (
+                  <span 
+                    key={i}
+                    className="px-3 py-1 text-sm bg-primary/20 text-primary rounded-full"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Title */}
+          <h1 className="text-3xl md:text-5xl font-bold mb-6 dark:text-white">
+            {post.title}
+          </h1>
           
-          // Don't return drafts unless user is authenticated and is the author
-          if (postData.draft) {
-            try {
-              const decoded = verifyToken(event.headers.authorization);
-              if (postData.author !== `${decoded.username}@${decoded.instance}`) {
-                throw new Error('Not the author');
-              }
-            } catch (authError) {
-              return {
-                statusCode: 404,
-                headers,
-                body: JSON.stringify({
-                  error: 'not_found',
-                  message: 'Post not found'
-                })
-              };
-            }
-          }
+          {/* Description */}
+          {post.description && (
+            <p className="text-xl text-gray-600 dark:text-gray-400 mb-8">
+              {post.description}
+            </p>
+          )}
 
-          return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({
-              success: true,
-              data: {
-                post: postData,
-                meta: {
-                  api_url: `${process.env.URL}/.netlify/functions/api-posts-slug-db/${slug}`,
-                  web_url: `${process.env.URL}/posts/${slug}`,
-                  edit_url: `${process.env.URL}/admin?edit=${slug}`,
-                  storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
-                }
-              }
-            })
-          };
-        }
-        
-      } catch (storageError) {
-        console.log('Post not found in storage:', storageError.message);
-      }
-      
-      // If post not found in storage, return 404
-      return {
-        statusCode: 404,
-        headers,
-        body: JSON.stringify({
-          error: 'not_found',
-          message: `Post '${slug}' not found in our database`,
-          suggestion: 'Check the URL or browse available posts from the home page'
-        })
-      };
-    }
+          {/* Read Time */}
+          {post.read_time && (
+            <p className="text-sm opacity-60 mb-8">
+              📖 {post.read_time} min read • {post.word_count} words
+            </p>
+          )}
+        </header>
 
-    // PUT /api/posts-slug-db/:slug - Update post (authenticated)
-    if (event.httpMethod === 'PUT') {
-      const decoded = verifyToken(event.headers.authorization);
-      const { title, content, description, tags, isDraft } = JSON.parse(event.body);
-      
-      const existingPost = usingBlobs 
-        ? await store.get(slug, { type: 'json' })
-        : memoryStore.get(slug);
-      
-      if (!existingPost) {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({
-            error: 'not_found',
-            message: 'Post not found'
-          })
-        };
-      }
+        {/* Post Content */}
+        <main>
+          <article className="prose prose-lg dark:prose-invert max-w-none">
+            {renderContent()}
+          </article>
+        </main>
 
-      // Check if user is the author
-      if (existingPost.author !== `${decoded.username}@${decoded.instance}`) {
-        return {
-          statusCode: 403,
-          headers,
-          body: JSON.stringify({
-            error: 'forbidden',
-            message: 'You can only edit your own posts'
-          })
-        };
-      }
+        {/* Back to Home Footer */}
+        <footer className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 text-center">
+          <Link 
+            href="/"
+            className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
+          >
+            ← Back to Community Posts
+          </Link>
+        </footer>
+      </article>
 
-      // Update post data
-      const updatedPost = {
-        ...existingPost,
-        title: title || existingPost.title,
-        content: content || existingPost.content,
-        description: description !== undefined ? description : existingPost.description,
-        tags: tags !== undefined ? (Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim()).filter(Boolean)) : existingPost.tags,
-        draft: isDraft !== undefined ? isDraft : existingPost.draft,
-        published: isDraft !== undefined ? !isDraft : existingPost.published,
-        updated_at: new Date().toISOString(),
-      };
+      <Footer copyrightText={globalData.footerText} />
+      <GradientBackground
+        variant="large"
+        className="absolute -top-32 opacity-30 dark:opacity-50"
+      />
+      <GradientBackground
+        variant="small"
+        className="absolute bottom-0 opacity-20 dark:opacity-10"
+      />
+    </Layout>
+  );
+}
 
-      // Recalculate derived fields if content changed
-      if (content && content !== existingPost.content) {
-        const wordCount = content.split(/\s+/).length;
-        updatedPost.word_count = wordCount;
-        updatedPost.read_time = Math.ceil(wordCount / 200);
-        updatedPost.content_preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
-      }
+// CRITICAL: Export PostPage as default
+export default PostPage;
 
-      if (usingBlobs) {
-        await store.set(slug, JSON.stringify(updatedPost));
-        console.log('Post updated in Netlify Blobs:', slug);
-      } else {
-        memoryStore.set(slug, updatedPost);
-        console.log('Post updated in memory:', slug);
-      }
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          message: 'Post updated successfully',
-          data: {
-            slug: slug,
-            title: updatedPost.title,
-            updated_at: updatedPost.updated_at,
-            storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
-          }
-        })
-      };
-    }
-
-    // DELETE /api/posts-slug-db/:slug - Delete post (authenticated)
-    if (event.httpMethod === 'DELETE') {
-      const decoded = verifyToken(event.headers.authorization);
-      
-      const existingPost = usingBlobs 
-        ? await store.get(slug, { type: 'json' })
-        : memoryStore.get(slug);
-      
-      if (!existingPost) {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({
-            error: 'not_found',
-            message: 'Post not found'
-          })
-        };
-      }
-
-      // Check if user is the author
-      if (existingPost.author !== `${decoded.username}@${decoded.instance}`) {
-        return {
-          statusCode: 403,
-          headers,
-          body: JSON.stringify({
-            error: 'forbidden',
-            message: 'You can only delete your own posts'
-          })
-        };
-      }
-
-      if (usingBlobs) {
-        await store.delete(slug);
-        console.log('Post deleted from Netlify Blobs:', slug);
-      } else {
-        memoryStore.delete(slug);
-        console.log('Post deleted from memory:', slug);
-      }
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          message: 'Post deleted successfully',
-          data: {
-            slug: slug,
-            deleted_at: new Date().toISOString()
-          }
-        })
-      };
-    }
-
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({
-        error: 'method_not_allowed',
-        message: 'Method not supported'
-      })
-    };
-
-  } catch (error) {
-    console.error('Single post API error:', error);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return {
-        statusCode: 401,
-        headers,
-        body: JSON.stringify({
-          error: 'unauthorized',
-          message: 'Invalid token'
-        })
-      };
-    }
-
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        error: 'server_error',
-        message: 'Internal server error'
-      })
-    };
-  }
-};
+// Use getServerSideProps for dynamic content
+export async function getServerSideProps(context) {
+  const globalData = getGlobalData();
+  
+  return {
+    props: {
+      globalData,
+    },
+  };
+}
