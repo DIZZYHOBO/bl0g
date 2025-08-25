@@ -1,7 +1,11 @@
 const jwt = require('jsonwebtoken');
 
 // Share the same memory store with api-posts-db.js
-const memoryStore = global.blogPostsMemoryStore || (global.blogPostsMemoryStore = new Map());
+// IMPORTANT: Use the exact same global variable name
+if (!global.blogPostsMemoryStore) {
+  global.blogPostsMemoryStore = new Map();
+}
+const memoryStore = global.blogPostsMemoryStore;
 
 // Initialize with welcome post if empty
 function ensureWelcomePost() {
