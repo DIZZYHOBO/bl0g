@@ -1,11 +1,31 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/router';
-import Link from 'next/link';  // ← Add this line
+import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
+
+// Markdown toolbar button component
+function ToolbarButton({ icon, title, onClick, shortcut }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={shortcut ? `${title} (${shortcut})` : title}
+      className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300"
+    >
+      <span className="text-lg">{icon}</span>
+    </button>
+  );
+}
+
+// Divider component
+function ToolbarDivider() {
+  return <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1" />;
+}
 
 export default function PostEditor({ post, onSave, onCancel }) {
   const { createPost, user } = useAuth();
   const router = useRouter();
+  const textareaRef = useRef(null);
   const [formData, setFormData] = useState({
     title: post?.title || '',
     content: post?.content || '',
@@ -16,6 +36,48 @@ export default function PostEditor({ post, onSave, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+
+  // Helper function to insert text at cursor position
+  const insertAtCursor = (before, after = '', placeholder = '') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const selectedText = text.substring(start, end) || placeholder;
+
+    const newText = text.substring(0, start) + before + selectedText + after + text.substring(end);
+    
+    setFormData({ ...formData, content: newText });
+    
+    // Set cursor position after insertion
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + before.length + selectedText.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  // Markdown formatting functions
+  const addBold = () => insertAtCursor('**', '**', 'bold text');
+  const addItalic = () => insertAtCursor('*', '*', 'italic text');
+  const addStrikethrough = () => insertAtCursor('~~', '~~', 'strikethrough');
+  const addCode = () => insertAtCursor('`', '`', 'code');
+  const addCodeBlock = () => insertAtCursor('```\n', '\n```', 'code block');
+  const addLink = () => insertAtCursor('[', '](url)', 'link text');
+  const addImage = () => insertAtCursor('![', '](url)', 'alt text');
+  const addH1 = () => insertAtCursor('# ', '', 'Heading 1');
+  const addH2 = () => insertAtCursor('## ', '', 'Heading 2');
+  const addH3 = () => insertAtCursor('### ', '', 'Heading 3');
+  const addQuote = () => insertAtCursor('> ', '', 'quote');
+  const addBulletList = () => insertAtCursor('- ', '', 'list item');
+  const addNumberedList = () => insertAtCursor('1. ', '', 'list item');
+  const addHorizontalRule = () => insertAtCursor('\n---\n', '', '');
+  const addTable = () => {
+    const table = '\n| Column 1 | Column 2 | Column 3 |\n|----------|----------|----------|\n| Cell 1   | Cell 2   | Cell 3   |\n| Cell 4   | Cell 5   | Cell 6   |\n';
+    insertAtCursor(table, '', '');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,14 +97,11 @@ export default function PostEditor({ post, onSave, onCancel }) {
         const successMessage = `Post ${formData.isDraft ? 'saved as draft' : 'published'} successfully!`;
         setSuccess(successMessage);
         
-        // Check if we should return to home page
         const shouldReturnHome = router.query.returnHome === 'true' || 
                                  sessionStorage.getItem('postCreatedCallback') === 'true';
         
         if (!formData.isDraft && shouldReturnHome) {
-          // Clear callback flag
           sessionStorage.removeItem('postCreatedCallback');
-          
           setTimeout(() => {
             router.push('/?newPost=success');
           }, 1500);
@@ -121,19 +180,83 @@ export default function PostEditor({ post, onSave, onCancel }) {
         </div>
         
         <div>
-          <label className="block text-sm font-medium mb-1">Content *</label>
+          <label className="block text-sm font-medium mb-1">Content * (Markdown Supported)</label>
+          
+          {/* Markdown Toolbar */}
+          <div className="bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-t-lg p-2 flex flex-wrap items-center gap-1">
+            {/* Text Formatting */}
+            <div className="flex items-center">
+              <ToolbarButton icon="B" title="Bold" onClick={addBold} shortcut="Ctrl+B" />
+              <ToolbarButton icon="I" title="Italic" onClick={addItalic} shortcut="Ctrl+I" />
+              <ToolbarButton icon="S̶" title="Strikethrough" onClick={addStrikethrough} />
+              <ToolbarButton icon="<>" title="Inline Code" onClick={addCode} />
+            </div>
+            
+            <ToolbarDivider />
+            
+            {/* Headings */}
+            <div className="flex items-center">
+              <ToolbarButton icon="H1" title="Heading 1" onClick={addH1} />
+              <ToolbarButton icon="H2" title="Heading 2" onClick={addH2} />
+              <ToolbarButton icon="H3" title="Heading 3" onClick={addH3} />
+            </div>
+            
+            <ToolbarDivider />
+            
+            {/* Lists and Quotes */}
+            <div className="flex items-center">
+              <ToolbarButton icon="•" title="Bullet List" onClick={addBulletList} />
+              <ToolbarButton icon="1." title="Numbered List" onClick={addNumberedList} />
+              <ToolbarButton icon="❝" title="Quote" onClick={addQuote} />
+            </div>
+            
+            <ToolbarDivider />
+            
+            {/* Links and Media */}
+            <div className="flex items-center">
+              <ToolbarButton icon="🔗" title="Add Link" onClick={addLink} />
+              <ToolbarButton icon="🖼️" title="Add Image" onClick={addImage} />
+            </div>
+            
+            <ToolbarDivider />
+            
+            {/* Advanced */}
+            <div className="flex items-center">
+              <ToolbarButton icon="[/]" title="Code Block" onClick={addCodeBlock} />
+              <ToolbarButton icon="⊞" title="Table" onClick={addTable} />
+              <ToolbarButton icon="―" title="Horizontal Rule" onClick={addHorizontalRule} />
+            </div>
+          </div>
+          
+          {/* Textarea */}
           <textarea
+            ref={textareaRef}
             value={formData.content}
             onChange={(e) => setFormData({...formData, content: e.target.value})}
             rows="15"
-            className="w-full p-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 bg-white/50"
+            className="w-full p-3 border border-t-0 rounded-b-lg dark:bg-gray-700 dark:border-gray-600 bg-white/50 font-mono text-sm"
             required
             placeholder="Write your blog post content here... (Markdown supported)"
             disabled={loading}
           />
-          <p className="text-xs text-gray-500 mt-1">
-            You can use Markdown formatting. The post will be saved as an MDX file.
-          </p>
+          
+          {/* Markdown Help */}
+          <details className="mt-2">
+            <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+              Markdown Quick Reference
+            </summary>
+            <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded text-xs space-y-1 font-mono">
+              <div><strong>Bold:</strong> **text** or __text__</div>
+              <div><strong>Italic:</strong> *text* or _text_</div>
+              <div><strong>Link:</strong> [text](url)</div>
+              <div><strong>Image:</strong> ![alt text](url)</div>
+              <div><strong>Code:</strong> `code` or ```language\ncode block\n```</div>
+              <div><strong>Headers:</strong> # H1, ## H2, ### H3</div>
+              <div><strong>Lists:</strong> - item or 1. item</div>
+              <div><strong>Quote:</strong> > quoted text</div>
+              <div><strong>Table:</strong> | Col1 | Col2 |</div>
+            </div>
+          </details>
         </div>
         
         <div className="flex items-center gap-2">
