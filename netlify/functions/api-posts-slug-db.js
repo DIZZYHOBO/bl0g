@@ -1,21 +1,5 @@
 const jwt = require('jsonwebtoken');
-
-// In-memory storage as fallback
-if (!global.blogPostsMemoryStore) {
-  global.blogPostsMemoryStore = new Map();
-}
-const memoryStore = global.blogPostsMemoryStore;
-
-// Try to load Netlify Blobs if available
-let getStore;
-try {
-  const blobsModule = require('@netlify/blobs');
-  getStore = blobsModule.getStore;
-  console.log('Netlify Blobs module loaded successfully');
-} catch (error) {
-  console.log('Netlify Blobs not available, using memory storage');
-  getStore = null;
-}
+const { getStore } = require('@netlify/blobs');
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -39,90 +23,47 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Initialize storage
-    let store;
-    let usingBlobs = false;
+    // Initialize Netlify Blobs store
+    const store = getStore('blog-posts');
     
-    // Try to use Netlify Blobs if available
-    if (getStore && context.site) {
-      try {
-        store = getStore({
-          name: 'blog-posts',
-          siteID: context.site.id,
-        });
-        usingBlobs = true;
-        console.log('Using Netlify Blobs for storage');
-      } catch (blobError) {
-        console.log('Failed to initialize Netlify Blobs:', blobError.message);
-        store = null;
-        usingBlobs = false;
-      }
-    }
-    
-    // Create wrapper for consistent API
-    const storage = usingBlobs ? {
-      get: async (key) => {
-        try {
-          return await store.get(key);
-        } catch (e) {
-          if (e.message?.includes('404')) return null;
-          throw e;
-        }
-      },
-      set: async (key, value) => store.set(key, value),
-      delete: async (key) => store.delete(key)
-    } : {
-      get: async (key) => memoryStore.get(key) || null,
-      set: async (key, value) => memoryStore.set(key, value),
-      delete: async (key) => memoryStore.delete(key)
-    };
-
     // Extract slug from query parameters
-    let slug = '';
+    const slug = event.queryStringParameters?.slug;
     
-    if (event.queryStringParameters && event.queryStringParameters.slug) {
-      slug = event.queryStringParameters.slug;
-    } 
-    else if (event.pathParameters && event.pathParameters.slug) {
-      slug = event.pathParameters.slug;
-    } 
-    else {
-      const pathParts = event.path.split('/');
-      slug = pathParts[pathParts.length - 1];
-    }
-    
-    slug = slug.split('?')[0];
-    
-    console.log('Looking for post with slug:', slug);
-
-    if (!slug || slug === 'api-posts-slug-db') {
+    if (!slug) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           error: 'bad_request',
-          message: 'Post slug is required as query parameter: ?slug=your-post-slug'
+          message: 'Post slug is required: ?slug=post-slug'
         })
       };
     }
 
+    console.log('Processing request for slug:', slug);
+
     // GET - Get specific post
     if (event.httpMethod === 'GET') {
       try {
-        // Get the post from storage
-        const postData = await storage.get(slug);
+        // Get post from Netlify Blobs
+        const postData = await store.get(slug, { type: 'json' });
         
-        if (postData) {
-          console.log('Found post:', postData.title);
-          
-          // Don't return drafts unless user is authenticated and is the author
-          if (postData.draft) {
-            try {
-              const decoded = verifyToken(event.headers.authorization);
-              if (postData.author !== `${decoded.username}@${decoded.instance}`) {
-                throw new Error('Not the author');
-              }
-            } catch (authError) {
+        if (!postData) {
+          return {
+            statusCode: 404,
+            headers,
+            body: JSON.stringify({
+              error: 'not_found',
+              message: `Post '${slug}' not found`
+            })
+          };
+        }
+        
+        // Check if draft (only author can see drafts)
+        if (postData.draft) {
+          try {
+            const decoded = verifyToken(event.headers.authorization);
+            if (postData.author !== `${decoded.username}@${decoded.instance}`) {
               return {
                 statusCode: 404,
                 headers,
@@ -132,58 +73,55 @@ exports.handler = async (event, context) => {
                 })
               };
             }
+          } catch {
+            return {
+              statusCode: 404,
+              headers,
+              body: JSON.stringify({
+                error: 'not_found',
+                message: 'Post not found'
+              })
+            };
           }
+        }
 
-          return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({
-              success: true,
-              data: {
-                post: postData,
-                meta: {
-                  api_url: `${process.env.URL}/.netlify/functions/api-posts-slug-db?slug=${slug}`,
-                  web_url: `${process.env.URL}/posts/${slug}`,
-                  edit_url: `${process.env.URL}/admin?edit=${slug}`,
-                  storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
-                }
-              }
-            })
-          };
-        } else {
-          // Post not found
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            data: {
+              post: postData
+            }
+          })
+        };
+        
+      } catch (error) {
+        console.error('Error fetching post:', error);
+        
+        // Handle Netlify Blobs not found error
+        if (error.message?.includes('404') || error.message?.includes('not found')) {
           return {
             statusCode: 404,
             headers,
             body: JSON.stringify({
               error: 'not_found',
-              message: `Post '${slug}' not found`,
-              suggestion: 'Check the URL or browse available posts from the home page'
+              message: `Post '${slug}' not found`
             })
           };
         }
         
-      } catch (storageError) {
-        console.log('Error fetching post:', storageError);
-        
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({
-            error: 'not_found',
-            message: `Post '${slug}' not found`,
-            details: storageError.message
-          })
-        };
+        throw error;
       }
     }
 
-    // PUT - Update post (authenticated)
+    // PUT - Update post
     if (event.httpMethod === 'PUT') {
       const decoded = verifyToken(event.headers.authorization);
-      const { title, content, description, tags, isDraft } = JSON.parse(event.body);
+      const updates = JSON.parse(event.body);
       
-      const existingPost = await storage.get(slug);
+      // Get existing post
+      const existingPost = await store.get(slug, { type: 'json' });
       
       if (!existingPost) {
         return {
@@ -196,7 +134,7 @@ exports.handler = async (event, context) => {
         };
       }
 
-      // Check if user is the author
+      // Check ownership
       if (existingPost.author !== `${decoded.username}@${decoded.instance}`) {
         return {
           statusCode: 403,
@@ -208,50 +146,31 @@ exports.handler = async (event, context) => {
         };
       }
 
-      // Update post data
+      // Update post
       const updatedPost = {
         ...existingPost,
-        title: title || existingPost.title,
-        content: content || existingPost.content,
-        description: description !== undefined ? description : existingPost.description,
-        tags: tags !== undefined ? (Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim()).filter(Boolean)) : existingPost.tags,
-        draft: isDraft !== undefined ? isDraft : existingPost.draft,
-        published: isDraft !== undefined ? !isDraft : existingPost.published,
-        updated_at: new Date().toISOString(),
+        ...updates,
+        updated_at: new Date().toISOString()
       };
 
-      // Recalculate derived fields if content changed
-      if (content && content !== existingPost.content) {
-        const wordCount = content.split(/\s+/).length;
-        updatedPost.word_count = wordCount;
-        updatedPost.read_time = Math.ceil(wordCount / 200);
-        updatedPost.content_preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
-      }
-
-      await storage.set(slug, updatedPost);
-      console.log(`Post updated in ${usingBlobs ? 'Netlify Blobs' : 'memory'}:`, slug);
+      await store.setJSON(slug, updatedPost);
 
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({
           success: true,
-          message: 'Post updated successfully',
-          data: {
-            slug: slug,
-            title: updatedPost.title,
-            updated_at: updatedPost.updated_at,
-            storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
-          }
+          message: 'Post updated successfully'
         })
       };
     }
 
-    // DELETE - Delete post (authenticated)
+    // DELETE - Delete post
     if (event.httpMethod === 'DELETE') {
       const decoded = verifyToken(event.headers.authorization);
       
-      const existingPost = await storage.get(slug);
+      // Get existing post
+      const existingPost = await store.get(slug, { type: 'json' });
       
       if (!existingPost) {
         return {
@@ -264,7 +183,7 @@ exports.handler = async (event, context) => {
         };
       }
 
-      // Check if user is the author
+      // Check ownership
       if (existingPost.author !== `${decoded.username}@${decoded.instance}`) {
         return {
           statusCode: 403,
@@ -276,19 +195,14 @@ exports.handler = async (event, context) => {
         };
       }
 
-      await storage.delete(slug);
-      console.log(`Post deleted from ${usingBlobs ? 'Netlify Blobs' : 'memory'}:`, slug);
+      await store.delete(slug);
 
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({
           success: true,
-          message: 'Post deleted successfully',
-          data: {
-            slug: slug,
-            deleted_at: new Date().toISOString()
-          }
+          message: 'Post deleted successfully'
         })
       };
     }
@@ -303,8 +217,7 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
-    console.error('Single post API error:', error);
-    console.error('Error stack:', error.stack);
+    console.error('API Error:', error);
     
     if (error.name === 'JsonWebTokenError') {
       return {
@@ -322,10 +235,8 @@ exports.handler = async (event, context) => {
       headers,
       body: JSON.stringify({
         error: 'server_error',
-        message: 'Internal server error',
-        details: error.message,
-        type: error.name,
-        storage_info: 'Check if @netlify/blobs is installed and Netlify Blobs is enabled for your site'
+        message: error.message,
+        tip: 'Make sure @netlify/blobs is installed: npm install @netlify/blobs'
       })
     };
   }
