@@ -3,6 +3,87 @@ const jwt = require('jsonwebtoken');
 // Share the same memory store with api-posts-db.js
 const memoryStore = global.blogPostsMemoryStore || (global.blogPostsMemoryStore = new Map());
 
+// Initialize with welcome post if empty
+function ensureWelcomePost() {
+  const welcomeSlug = 'welcome-to-community';
+  
+  if (!memoryStore.has(welcomeSlug)) {
+    const welcomePost = {
+      slug: welcomeSlug,
+      title: 'Welcome to Our Community Blog! 🚀',
+      description: 'A place where Lemmy users share their thoughts, ideas, and expertise',
+      content: `# Welcome to Our Community Blog! 🚀
+
+This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights with the world.
+
+## 🌟 What Makes This Special
+
+This isn't just another blog - it's a **community-driven platform** where every Lemmy user can contribute and share their knowledge.
+
+## 🚀 Getting Started
+
+To contribute to our growing community:
+
+1. **Login** with your Lemmy account credentials from any instance
+2. **Click "Write Post"** to create new content  
+3. **Share your expertise** with fellow community members
+4. **Engage and learn** from others' contributions
+
+## 💡 What You Can Share
+
+- **Programming tutorials** and coding tips
+- **Technology insights** and product reviews  
+- **Personal projects** and development experiences
+- **Community discussions** and thoughtful opinions
+- **Open source contributions** and project updates
+- **Technical guides** and comprehensive how-tos
+- **Industry insights** and career advice
+
+## 📝 Content Guidelines
+
+To maintain a high-quality community resource:
+
+- **Be respectful and constructive** in all interactions
+- **Share original content** or properly attribute sources
+- **Use clear, descriptive titles** that help others find your content
+- **Add relevant tags** to categorize your posts effectively
+- **Write for your audience** - assume readers want to learn
+
+## 🎯 Our Mission
+
+We're building more than just a blog - we're creating a **knowledge hub** where the Lemmy community can:
+- Share expertise across different domains
+- Learn from each other's experiences
+- Build connections beyond individual instances
+- Create a lasting resource for future community members
+
+## 🤝 Join the Conversation
+
+Every post contributes to our collective knowledge base. Whether you're sharing a quick tip or writing an in-depth tutorial, your contribution matters.
+
+**Ready to get started?** Login with your Lemmy account and share something amazing with our community!
+
+---
+
+*This platform is built by the community, for the community. Happy blogging!*`,
+      content_preview: 'Welcome to our community blog! A collaborative space where Lemmy users share thoughts, tutorials, and insights. Login with your Lemmy account to start contributing...',
+      author: 'Community Team',
+      date: new Date().toISOString().split('T')[0],
+      tags: ['welcome', 'community', 'getting-started', 'blogging'],
+      read_time: 4,
+      word_count: 320,
+      published: true,
+      draft: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      featured: true
+    };
+
+    memoryStore.set(welcomeSlug, welcomePost);
+    console.log('Welcome post created in memory');
+  }
+}
+
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     throw new Error('Invalid authorization header');
@@ -23,6 +104,9 @@ exports.handler = async (event, context) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
+
+  // Initialize welcome post
+  ensureWelcomePost();
 
   try {
     // Try to use Netlify Blobs if available, otherwise use memory storage
@@ -45,24 +129,8 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Extract slug from path or query parameters
-    let slug = '';
-    
-    // First check query parameters (for client-side requests)
-    if (event.queryStringParameters && event.queryStringParameters.slug) {
-      slug = event.queryStringParameters.slug;
-    } 
-    // Then check path parameters (for Netlify routing)
-    else if (event.pathParameters && event.pathParameters.slug) {
-      slug = event.pathParameters.slug;
-    } 
-    // Finally try to extract from path
-    else {
-      const pathParts = event.path.split('/');
-      slug = pathParts[pathParts.length - 1];
-    }
-    
-    slug = slug.split('?')[0]; // Remove any remaining query parameters
+    // Extract slug from query parameters
+    const slug = event.queryStringParameters?.slug;
     
     console.log('Looking for post with slug:', slug);
 
@@ -77,7 +145,7 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // GET /api/posts-slug-db/:slug - Get specific post
+    // GET - Get specific post
     if (event.httpMethod === 'GET') {
       
       try {
@@ -116,7 +184,7 @@ exports.handler = async (event, context) => {
               data: {
                 post: postData,
                 meta: {
-                  api_url: `${process.env.URL}/.netlify/functions/api-posts-slug-db/${slug}`,
+                  api_url: `${process.env.URL}/.netlify/functions/api-post-by-slug?slug=${slug}`,
                   web_url: `${process.env.URL}/posts/${slug}`,
                   edit_url: `${process.env.URL}/admin?edit=${slug}`,
                   storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
@@ -142,7 +210,7 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // PUT /api/posts-slug-db/:slug - Update post (authenticated)
+    // PUT - Update post (authenticated)
     if (event.httpMethod === 'PUT') {
       const decoded = verifyToken(event.headers.authorization);
       const { title, content, description, tags, isDraft } = JSON.parse(event.body);
@@ -218,7 +286,7 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // DELETE /api/posts-slug-db/:slug - Delete post (authenticated)
+    // DELETE - Delete post (authenticated)
     if (event.httpMethod === 'DELETE') {
       const decoded = verifyToken(event.headers.authorization);
       
@@ -299,7 +367,8 @@ exports.handler = async (event, context) => {
       headers,
       body: JSON.stringify({
         error: 'server_error',
-        message: 'Internal server error'
+        message: 'Internal server error',
+        details: error.message
       })
     };
   }
