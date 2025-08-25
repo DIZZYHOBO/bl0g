@@ -1,5 +1,21 @@
 const jwt = require('jsonwebtoken');
-const { getStore } = require('@netlify/blobs');
+
+// In-memory storage as fallback
+if (!global.blogPostsMemoryStore) {
+  global.blogPostsMemoryStore = new Map();
+}
+const memoryStore = global.blogPostsMemoryStore;
+
+// Try to load Netlify Blobs if available
+let getStore;
+try {
+  const blobsModule = require('@netlify/blobs');
+  getStore = blobsModule.getStore;
+  console.log('Netlify Blobs module loaded successfully');
+} catch (error) {
+  console.log('Netlify Blobs not available, using memory storage');
+  getStore = null;
+}
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -23,29 +39,59 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Get the Netlify Blobs store
-    const store = getStore({
-      name: 'blog-posts',
-      siteID: context.site?.id,
-    });
+    // Initialize storage
+    let store;
+    let usingBlobs = false;
+    
+    // Try to use Netlify Blobs if available
+    if (getStore && context.site) {
+      try {
+        store = getStore({
+          name: 'blog-posts',
+          siteID: context.site.id,
+        });
+        usingBlobs = true;
+        console.log('Using Netlify Blobs for storage');
+      } catch (blobError) {
+        console.log('Failed to initialize Netlify Blobs:', blobError.message);
+        store = null;
+        usingBlobs = false;
+      }
+    }
+    
+    // Create wrapper for consistent API
+    const storage = usingBlobs ? {
+      get: async (key) => {
+        try {
+          return await store.get(key);
+        } catch (e) {
+          if (e.message?.includes('404')) return null;
+          throw e;
+        }
+      },
+      set: async (key, value) => store.set(key, value),
+      delete: async (key) => store.delete(key)
+    } : {
+      get: async (key) => memoryStore.get(key) || null,
+      set: async (key, value) => memoryStore.set(key, value),
+      delete: async (key) => memoryStore.delete(key)
+    };
 
-    // Extract slug from query parameters FIRST (for client-side requests)
+    // Extract slug from query parameters
     let slug = '';
     
     if (event.queryStringParameters && event.queryStringParameters.slug) {
       slug = event.queryStringParameters.slug;
     } 
-    // Then check path parameters (for Netlify routing)
     else if (event.pathParameters && event.pathParameters.slug) {
       slug = event.pathParameters.slug;
     } 
-    // Finally try to extract from path
     else {
       const pathParts = event.path.split('/');
       slug = pathParts[pathParts.length - 1];
     }
     
-    slug = slug.split('?')[0]; // Remove any remaining query parameters
+    slug = slug.split('?')[0];
     
     console.log('Looking for post with slug:', slug);
 
@@ -63,11 +109,11 @@ exports.handler = async (event, context) => {
     // GET - Get specific post
     if (event.httpMethod === 'GET') {
       try {
-        // Get the post from Netlify Blobs
-        const postData = await store.get(slug);
+        // Get the post from storage
+        const postData = await storage.get(slug);
         
         if (postData) {
-          console.log('Found post in Netlify Blobs:', postData.title);
+          console.log('Found post:', postData.title);
           
           // Don't return drafts unless user is authenticated and is the author
           if (postData.draft) {
@@ -99,7 +145,7 @@ exports.handler = async (event, context) => {
                   api_url: `${process.env.URL}/.netlify/functions/api-posts-slug-db?slug=${slug}`,
                   web_url: `${process.env.URL}/posts/${slug}`,
                   edit_url: `${process.env.URL}/admin?edit=${slug}`,
-                  storage_type: 'netlify_blobs_persistent'
+                  storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
                 }
               }
             })
@@ -120,20 +166,15 @@ exports.handler = async (event, context) => {
       } catch (storageError) {
         console.log('Error fetching post:', storageError);
         
-        // If it's a not found error from Blobs
-        if (storageError.message?.includes('404') || storageError.code === 'BlobNotFoundError') {
-          return {
-            statusCode: 404,
-            headers,
-            body: JSON.stringify({
-              error: 'not_found',
-              message: `Post '${slug}' not found`,
-              suggestion: 'Check the URL or browse available posts from the home page'
-            })
-          };
-        }
-        
-        throw storageError;
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            error: 'not_found',
+            message: `Post '${slug}' not found`,
+            details: storageError.message
+          })
+        };
       }
     }
 
@@ -142,7 +183,7 @@ exports.handler = async (event, context) => {
       const decoded = verifyToken(event.headers.authorization);
       const { title, content, description, tags, isDraft } = JSON.parse(event.body);
       
-      const existingPost = await store.get(slug);
+      const existingPost = await storage.get(slug);
       
       if (!existingPost) {
         return {
@@ -187,8 +228,8 @@ exports.handler = async (event, context) => {
         updatedPost.content_preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
       }
 
-      await store.set(slug, updatedPost);
-      console.log('Post updated in Netlify Blobs:', slug);
+      await storage.set(slug, updatedPost);
+      console.log(`Post updated in ${usingBlobs ? 'Netlify Blobs' : 'memory'}:`, slug);
 
       return {
         statusCode: 200,
@@ -200,7 +241,7 @@ exports.handler = async (event, context) => {
             slug: slug,
             title: updatedPost.title,
             updated_at: updatedPost.updated_at,
-            storage_type: 'netlify_blobs_persistent'
+            storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary'
           }
         })
       };
@@ -210,7 +251,7 @@ exports.handler = async (event, context) => {
     if (event.httpMethod === 'DELETE') {
       const decoded = verifyToken(event.headers.authorization);
       
-      const existingPost = await store.get(slug);
+      const existingPost = await storage.get(slug);
       
       if (!existingPost) {
         return {
@@ -235,8 +276,8 @@ exports.handler = async (event, context) => {
         };
       }
 
-      await store.delete(slug);
-      console.log('Post deleted from Netlify Blobs:', slug);
+      await storage.delete(slug);
+      console.log(`Post deleted from ${usingBlobs ? 'Netlify Blobs' : 'memory'}:`, slug);
 
       return {
         statusCode: 200,
@@ -263,6 +304,7 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     console.error('Single post API error:', error);
+    console.error('Error stack:', error.stack);
     
     if (error.name === 'JsonWebTokenError') {
       return {
@@ -282,7 +324,8 @@ exports.handler = async (event, context) => {
         error: 'server_error',
         message: 'Internal server error',
         details: error.message,
-        storage_note: 'Ensure @netlify/blobs is installed: npm install @netlify/blobs'
+        type: error.name,
+        storage_info: 'Check if @netlify/blobs is installed and Netlify Blobs is enabled for your site'
       })
     };
   }
