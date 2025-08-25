@@ -9,9 +9,6 @@ import ArrowIcon from '../components/ArrowIcon';
 import { getGlobalData } from '../utils/global-data';
 import SEO from '../components/SEO';
 
-// ❌ REMOVE THIS LINE - it imports fs module
-// import { getPosts } from '../utils/mdx-utils'; 
-
 export default function Index({ globalData }) {
   const { isAuthenticated, user } = useAuth();
   const [posts, setPosts] = useState([]);
@@ -44,13 +41,16 @@ export default function Index({ globalData }) {
           data: {
             title: post.title,
             description: post.description,
+            content_preview: post.content_preview, // Add content preview
             date: new Date(post.date).toLocaleDateString('en-US', {
               year: 'numeric',
               month: 'long', 
               day: 'numeric'
             }),
             author: post.author,
-            tags: post.tags
+            tags: post.tags,
+            read_time: post.read_time,
+            word_count: post.word_count
           }
         }));
         
@@ -212,17 +212,22 @@ export default function Index({ globalData }) {
                     {post.data.title}
                   </h2>
                   
-                  {post.data.description && (
-                    <p className="text-lg opacity-60 mb-4">
-                      {post.data.description}
+                  {/* Show description if available, otherwise show content preview */}
+                  {(post.data.description || post.data.content_preview || post.content_preview) && (
+                    <p className="text-lg opacity-60 mb-4 line-clamp-3">
+                      {post.data.description || post.data.content_preview || post.content_preview}
                     </p>
                   )}
                   
-                  {post.read_time && (
-                    <p className="text-sm opacity-50 mb-4">
-                      {post.read_time} min read
-                    </p>
-                  )}
+                  {/* Show read time and word count */}
+                  <div className="flex gap-4 text-sm opacity-50 mb-4">
+                    {post.data.read_time && (
+                      <span>📖 {post.data.read_time} min read</span>
+                    )}
+                    {post.data.word_count && (
+                      <span>📝 {post.data.word_count} words</span>
+                    )}
+                  </div>
                   
                   <ArrowIcon className="mt-4" />
                 </Link>
