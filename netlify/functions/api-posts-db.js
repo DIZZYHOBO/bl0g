@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
 const { getStore } = require('@netlify/blobs');
 
+// ONLY THIS USER CAN POST/EDIT/DELETE
+const ALLOWED_USER = 'dumbass@leminal.space';
+
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     throw new Error('Invalid authorization header');
@@ -8,6 +11,11 @@ function verifyToken(authHeader) {
   
   const token = authHeader.substring(7);
   return jwt.verify(token, process.env.JWT_SECRET);
+}
+
+function checkIfAllowedUser(username, instance) {
+  const fullUsername = `${username}@${instance}`;
+  return fullUsername === ALLOWED_USER;
 }
 
 function generateSlug(title) {
@@ -26,32 +34,23 @@ function formatDate(date = new Date()) {
 function createWelcomePost() {
   return {
     slug: 'welcome-to-blog',
-    title: 'Welcome to Your Blog! 🚀',
-    description: 'Your posts are now permanently stored!',
-    content: `# Welcome to Your Blog! 🚀
+    title: 'Welcome to the Blog! 🚀',
+    description: 'A personal blog space',
+    content: `# Welcome to the Blog! 🚀
 
-Great news! Your blog is now using Netlify Blobs for permanent storage.
+This is a personal blog platform.
 
-## What This Means
+## Notice
 
-- ✅ Posts are saved permanently
-- ✅ Data survives deployments
-- ✅ No more lost content
-- ✅ Automatic backups
+Only authorized users can create, edit, or delete posts.
 
-## Getting Started
-
-1. Login with your Lemmy account
-2. Create a new post
-3. It will be saved forever!
-
-Your blog is ready for real content now.`,
-    content_preview: 'Your posts are now permanently stored in Netlify Blobs...',
+If you're not authorized, you can still read and enjoy the content!`,
+    content_preview: 'A personal blog space...',
     author: 'System',
     date: formatDate(),
-    tags: ['welcome', 'netlify-blobs'],
+    tags: ['welcome'],
     read_time: 1,
-    word_count: 80,
+    word_count: 50,
     published: true,
     draft: false,
     created_at: new Date().toISOString(),
@@ -94,7 +93,7 @@ exports.handler = async (event, context) => {
     
     console.log('Netlify Blobs store initialized successfully!');
     
-    // GET - List all posts
+    // GET - List all posts (ANYONE CAN READ)
     if (event.httpMethod === 'GET') {
       const { page = 1, limit = 10, search, tag, author } = event.queryStringParameters || {};
       
@@ -186,9 +185,25 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // POST - Create new post
+    // POST - Create new post (ONLY ALLOWED USER)
     if (event.httpMethod === 'POST') {
+      // Verify token first
       const decoded = verifyToken(event.headers.authorization);
+      
+      // CHECK IF USER IS ALLOWED
+      if (!checkIfAllowedUser(decoded.username, decoded.instance)) {
+        console.log(`Unauthorized user attempted to post: ${decoded.username}@${decoded.instance}`);
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ 
+            error: 'forbidden',
+            message: `Sorry, only ${ALLOWED_USER} can create posts on this blog.`,
+            your_account: `${decoded.username}@${decoded.instance}`
+          })
+        };
+      }
+      
       const { title, content, description, tags, isDraft = false } = JSON.parse(event.body);
       
       if (!title || !content) {
@@ -265,7 +280,7 @@ exports.handler = async (event, context) => {
         headers,
         body: JSON.stringify({
           error: 'unauthorized',
-          message: 'Invalid token'
+          message: 'Invalid token - please login'
         })
       };
     }
