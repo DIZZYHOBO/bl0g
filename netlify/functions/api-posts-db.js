@@ -1,5 +1,8 @@
 const jwt = require('jsonwebtoken');
-const { getStore } = require('@netlify/blobs');
+
+// Simple in-memory storage as fallback
+// In production, you'd want to use a proper database
+const memoryStore = new Map();
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -24,18 +27,15 @@ function formatDate(date = new Date()) {
 }
 
 // Initialize welcome post if none exists
-async function ensureWelcomePost(store) {
-  try {
-    const existingPost = await store.get('welcome-to-community', { type: 'json' });
-    if (existingPost) {
-      return; // Welcome post already exists
-    }
-  } catch (error) {
-    // Welcome post doesn't exist, create it
+async function ensureWelcomePost() {
+  const welcomeSlug = 'welcome-to-community';
+  
+  if (memoryStore.has(welcomeSlug)) {
+    return;
   }
 
   const welcomePost = {
-    slug: 'welcome-to-community',
+    slug: welcomeSlug,
     title: 'Welcome to Our Community Blog! 🚀',
     description: 'A place where Lemmy users share their thoughts, ideas, and expertise',
     content: `# Welcome to Our Community Blog! 🚀
@@ -105,8 +105,8 @@ Every post contributes to our collective knowledge base. Whether you're sharing 
     featured: true
   };
 
-  await store.set('welcome-to-community', JSON.stringify(welcomePost));
-  console.log('Welcome post created');
+  memoryStore.set(welcomeSlug, welcomePost);
+  console.log('Welcome post created in memory');
 }
 
 exports.handler = async (event, context) => {
@@ -130,11 +130,29 @@ exports.handler = async (event, context) => {
   console.log('API called:', event.httpMethod, event.path);
 
   try {
-    // Get the Netlify Blobs store for blog posts
-    const store = getStore('blog-posts');
+    // Try to use Netlify Blobs if available, otherwise use memory storage
+    let store;
+    let usingBlobs = false;
+    
+    try {
+      // Try to import Netlify Blobs
+      const { getStore } = require('@netlify/blobs');
+      store = getStore('blog-posts');
+      usingBlobs = true;
+      console.log('Using Netlify Blobs for storage');
+    } catch (blobError) {
+      console.log('Netlify Blobs not available, using in-memory storage');
+      // Blobs not available, use memory storage
+      store = {
+        list: async () => ({ blobs: Array.from(memoryStore.keys()).map(key => ({ key })) }),
+        get: async (key) => memoryStore.get(key),
+        set: async (key, value) => memoryStore.set(key, JSON.parse(value)),
+        delete: async (key) => memoryStore.delete(key)
+      };
+    }
 
     // Ensure welcome post exists
-    await ensureWelcomePost(store);
+    await ensureWelcomePost();
 
     // GET /api/posts-db - List all posts
     if (event.httpMethod === 'GET') {
@@ -142,20 +160,29 @@ exports.handler = async (event, context) => {
       
       console.log('GET request with params:', { page, limit, search, tag, author });
       
-      // Get all posts from blob storage
-      const { blobs } = await store.list();
+      // Get all posts
       const allPosts = [];
       
-      console.log(`Found ${blobs.length} blob entries`);
-      
-      for (const { key } of blobs) {
-        try {
-          const postData = await store.get(key, { type: 'json' });
+      if (usingBlobs) {
+        const { blobs } = await store.list();
+        console.log(`Found ${blobs.length} blob entries`);
+        
+        for (const { key } of blobs) {
+          try {
+            const postData = await store.get(key, { type: 'json' });
+            if (postData && !postData.draft) {
+              allPosts.push(postData);
+            }
+          } catch (error) {
+            console.error(`Error fetching post ${key}:`, error);
+          }
+        }
+      } else {
+        // Using memory storage
+        for (const [key, postData] of memoryStore.entries()) {
           if (postData && !postData.draft) {
             allPosts.push(postData);
           }
-        } catch (error) {
-          console.error(`Error fetching post ${key}:`, error);
         }
       }
       
@@ -223,8 +250,9 @@ exports.handler = async (event, context) => {
               author: author || null
             },
             meta: {
-              total_stored_posts: blobs.length,
-              storage_type: 'netlify_blobs'
+              total_stored_posts: allPosts.length,
+              storage_type: usingBlobs ? 'netlify_blobs' : 'in_memory',
+              note: usingBlobs ? 'Using persistent Netlify Blobs storage' : 'Using temporary in-memory storage (posts will be lost on restart)'
             }
           }
         })
@@ -282,24 +310,28 @@ exports.handler = async (event, context) => {
         }
       };
 
-      // Store in Netlify Blobs - this persists permanently!
-      await store.set(uniqueSlug, JSON.stringify(newPost));
-      
-      console.log('Post saved to persistent storage:', uniqueSlug);
+      // Store the post
+      if (usingBlobs) {
+        await store.set(uniqueSlug, JSON.stringify(newPost));
+        console.log('Post saved to Netlify Blobs:', uniqueSlug);
+      } else {
+        memoryStore.set(uniqueSlug, newPost);
+        console.log('Post saved to memory:', uniqueSlug);
+      }
 
       return {
         statusCode: 201,
         headers,
         body: JSON.stringify({ 
           success: true,
-          message: 'Post created and saved permanently',
+          message: usingBlobs ? 'Post created and saved permanently' : 'Post created (temporary storage)',
           data: {
             slug: uniqueSlug,
             title: title,
             author: newPost.author,
             status: isDraft ? 'draft' : 'published',
             created_at: newPost.created_at,
-            storage_type: 'netlify_blobs_persistent',
+            storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary',
             url: `${process.env.URL || ''}/posts/${uniqueSlug}`,
             api_url: `${process.env.URL || ''}/.netlify/functions/api-posts-slug-db/${uniqueSlug}`
           }
