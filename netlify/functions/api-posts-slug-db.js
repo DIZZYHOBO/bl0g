@@ -1,39 +1,5 @@
 const jwt = require('jsonwebtoken');
-
-// Share memory store with main posts function
-const memoryStore = global.postsMemoryStore || (global.postsMemoryStore = new Map());
-
-// Ensure welcome post exists
-if (memoryStore.size === 0) {
-  memoryStore.set('welcome-to-blog', {
-    slug: 'welcome-to-blog',
-    title: 'Welcome to Your Blog! 🚀',
-    description: 'Start sharing your thoughts and ideas',
-    content: `# Welcome to Your Blog! 🚀
-
-This is your blog platform where you can share your thoughts, tutorials, and insights with the world.
-
-## Getting Started
-
-To contribute:
-1. Login with your Lemmy account
-2. Click "New Post" to create content
-3. Share your expertise with readers
-
-Happy blogging!`,
-    content_preview: 'Welcome to your blog! Start sharing your thoughts and ideas with the world...',
-    author: 'Admin',
-    date: new Date().toISOString().split('T')[0],
-    tags: ['welcome', 'getting-started'],
-    read_time: 1,
-    word_count: 80,
-    published: true,
-    draft: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    featured: true
-  });
-}
+const { getStore } = require('@netlify/blobs');
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -57,12 +23,16 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Use in-memory storage
-    const storage = {
-      get: async (key) => memoryStore.get(key) || null,
-      setJSON: async (key, value) => memoryStore.set(key, value),
-      delete: async (key) => memoryStore.delete(key)
-    };
+    // Initialize Netlify Blobs with environment variables
+    const siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+    const token = process.env.NETLIFY_AUTH_TOKEN;
+    
+    // Get store with explicit configuration
+    const store = getStore({
+      name: 'blog-posts',
+      siteID: siteID,
+      token: token
+    });
     
     // Extract slug
     const slug = event.queryStringParameters?.slug;
@@ -82,24 +52,35 @@ exports.handler = async (event, context) => {
 
     // GET - Get specific post
     if (event.httpMethod === 'GET') {
-      const postData = await storage.get(slug);
-      
-      if (!postData) {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({
-            error: 'not_found',
-            message: `Post '${slug}' not found`
-          })
-        };
-      }
-      
-      // Check if draft
-      if (postData.draft) {
-        try {
-          const decoded = verifyToken(event.headers.authorization);
-          if (postData.author !== `${decoded.username}@${decoded.instance}`) {
+      try {
+        const postData = await store.get(slug, { type: 'json' });
+        
+        if (!postData) {
+          return {
+            statusCode: 404,
+            headers,
+            body: JSON.stringify({
+              error: 'not_found',
+              message: `Post '${slug}' not found`
+            })
+          };
+        }
+        
+        // Check if draft
+        if (postData.draft) {
+          try {
+            const decoded = verifyToken(event.headers.authorization);
+            if (postData.author !== `${decoded.username}@${decoded.instance}`) {
+              return {
+                statusCode: 404,
+                headers,
+                body: JSON.stringify({
+                  error: 'not_found',
+                  message: 'Post not found'
+                })
+              };
+            }
+          } catch {
             return {
               statusCode: 404,
               headers,
@@ -109,28 +90,34 @@ exports.handler = async (event, context) => {
               })
             };
           }
-        } catch {
+        }
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            data: {
+              post: postData,
+              meta: {
+                storage: 'netlify_blobs_permanent'
+              }
+            }
+          })
+        };
+      } catch (error) {
+        if (error.message?.includes('404')) {
           return {
             statusCode: 404,
             headers,
             body: JSON.stringify({
               error: 'not_found',
-              message: 'Post not found'
+              message: `Post '${slug}' not found`
             })
           };
         }
+        throw error;
       }
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          data: {
-            post: postData
-          }
-        })
-      };
     }
 
     // PUT - Update post
@@ -138,7 +125,7 @@ exports.handler = async (event, context) => {
       const decoded = verifyToken(event.headers.authorization);
       const updates = JSON.parse(event.body);
       
-      const existingPost = await storage.get(slug);
+      const existingPost = await store.get(slug, { type: 'json' });
       
       if (!existingPost) {
         return {
@@ -168,7 +155,7 @@ exports.handler = async (event, context) => {
         updated_at: new Date().toISOString()
       };
 
-      await storage.setJSON(slug, updatedPost);
+      await store.setJSON(slug, updatedPost);
 
       return {
         statusCode: 200,
@@ -184,7 +171,7 @@ exports.handler = async (event, context) => {
     if (event.httpMethod === 'DELETE') {
       const decoded = verifyToken(event.headers.authorization);
       
-      const existingPost = await storage.get(slug);
+      const existingPost = await store.get(slug, { type: 'json' });
       
       if (!existingPost) {
         return {
@@ -208,7 +195,7 @@ exports.handler = async (event, context) => {
         };
       }
 
-      await storage.delete(slug);
+      await store.delete(slug);
 
       return {
         statusCode: 200,
@@ -248,7 +235,8 @@ exports.handler = async (event, context) => {
       headers,
       body: JSON.stringify({
         error: 'server_error',
-        message: error.message
+        message: error.message,
+        help: 'Check that NETLIFY_SITE_ID and NETLIFY_AUTH_TOKEN are set in environment variables'
       })
     };
   }
