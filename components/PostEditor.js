@@ -253,7 +253,7 @@ export default function PostEditor({ post, onSave, onCancel }) {
               <div><strong>Code:</strong> `code` or ```language\ncode block\n```</div>
               <div><strong>Headers:</strong> # H1, ## H2, ### H3</div>
               <div><strong>Lists:</strong> - item or 1. item</div>
-              <div><strong>Quote:</strong> > quoted text</div>
+              <div><strong>Quote:</strong> &gt; quoted text</div>
               <div><strong>Table:</strong> | Col1 | Col2 |</div>
             </div>
           </details>
