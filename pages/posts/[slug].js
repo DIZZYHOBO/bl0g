@@ -39,8 +39,8 @@ function PostPage({ globalData }) {
         
         console.log('Fetching post with slug:', slug);
         
-        // Use the correct API endpoint path
-        const response = await fetch(`/.netlify/functions/api-posts-slug-db?slug=${slug}`);
+        // Use the simpler API endpoint path
+        const response = await fetch(`/.netlify/functions/api-post-by-slug?slug=${slug}`);
         
         console.log('Response status:', response.status);
         
