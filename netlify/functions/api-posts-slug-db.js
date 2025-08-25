@@ -1,5 +1,39 @@
 const jwt = require('jsonwebtoken');
-const { getStore } = require('@netlify/blobs');
+
+// Share memory store with main posts function
+const memoryStore = global.postsMemoryStore || (global.postsMemoryStore = new Map());
+
+// Ensure welcome post exists
+if (memoryStore.size === 0) {
+  memoryStore.set('welcome-to-blog', {
+    slug: 'welcome-to-blog',
+    title: 'Welcome to Your Blog! 🚀',
+    description: 'Start sharing your thoughts and ideas',
+    content: `# Welcome to Your Blog! 🚀
+
+This is your blog platform where you can share your thoughts, tutorials, and insights with the world.
+
+## Getting Started
+
+To contribute:
+1. Login with your Lemmy account
+2. Click "New Post" to create content
+3. Share your expertise with readers
+
+Happy blogging!`,
+    content_preview: 'Welcome to your blog! Start sharing your thoughts and ideas with the world...',
+    author: 'Admin',
+    date: new Date().toISOString().split('T')[0],
+    tags: ['welcome', 'getting-started'],
+    read_time: 1,
+    word_count: 80,
+    published: true,
+    draft: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    featured: true
+  });
+}
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -23,10 +57,14 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Initialize Netlify Blobs store
-    const store = getStore('blog-posts');
+    // Use in-memory storage
+    const storage = {
+      get: async (key) => memoryStore.get(key) || null,
+      setJSON: async (key, value) => memoryStore.set(key, value),
+      delete: async (key) => memoryStore.delete(key)
+    };
     
-    // Extract slug from query parameters
+    // Extract slug
     const slug = event.queryStringParameters?.slug;
     
     if (!slug) {
@@ -44,36 +82,24 @@ exports.handler = async (event, context) => {
 
     // GET - Get specific post
     if (event.httpMethod === 'GET') {
-      try {
-        // Get post from Netlify Blobs
-        const postData = await store.get(slug, { type: 'json' });
-        
-        if (!postData) {
-          return {
-            statusCode: 404,
-            headers,
-            body: JSON.stringify({
-              error: 'not_found',
-              message: `Post '${slug}' not found`
-            })
-          };
-        }
-        
-        // Check if draft (only author can see drafts)
-        if (postData.draft) {
-          try {
-            const decoded = verifyToken(event.headers.authorization);
-            if (postData.author !== `${decoded.username}@${decoded.instance}`) {
-              return {
-                statusCode: 404,
-                headers,
-                body: JSON.stringify({
-                  error: 'not_found',
-                  message: 'Post not found'
-                })
-              };
-            }
-          } catch {
+      const postData = await storage.get(slug);
+      
+      if (!postData) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            error: 'not_found',
+            message: `Post '${slug}' not found`
+          })
+        };
+      }
+      
+      // Check if draft
+      if (postData.draft) {
+        try {
+          const decoded = verifyToken(event.headers.authorization);
+          if (postData.author !== `${decoded.username}@${decoded.instance}`) {
             return {
               statusCode: 404,
               headers,
@@ -83,36 +109,28 @@ exports.handler = async (event, context) => {
               })
             };
           }
-        }
-
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            success: true,
-            data: {
-              post: postData
-            }
-          })
-        };
-        
-      } catch (error) {
-        console.error('Error fetching post:', error);
-        
-        // Handle Netlify Blobs not found error
-        if (error.message?.includes('404') || error.message?.includes('not found')) {
+        } catch {
           return {
             statusCode: 404,
             headers,
             body: JSON.stringify({
               error: 'not_found',
-              message: `Post '${slug}' not found`
+              message: 'Post not found'
             })
           };
         }
-        
-        throw error;
       }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            post: postData
+          }
+        })
+      };
     }
 
     // PUT - Update post
@@ -120,8 +138,7 @@ exports.handler = async (event, context) => {
       const decoded = verifyToken(event.headers.authorization);
       const updates = JSON.parse(event.body);
       
-      // Get existing post
-      const existingPost = await store.get(slug, { type: 'json' });
+      const existingPost = await storage.get(slug);
       
       if (!existingPost) {
         return {
@@ -134,7 +151,6 @@ exports.handler = async (event, context) => {
         };
       }
 
-      // Check ownership
       if (existingPost.author !== `${decoded.username}@${decoded.instance}`) {
         return {
           statusCode: 403,
@@ -146,14 +162,13 @@ exports.handler = async (event, context) => {
         };
       }
 
-      // Update post
       const updatedPost = {
         ...existingPost,
         ...updates,
         updated_at: new Date().toISOString()
       };
 
-      await store.setJSON(slug, updatedPost);
+      await storage.setJSON(slug, updatedPost);
 
       return {
         statusCode: 200,
@@ -169,8 +184,7 @@ exports.handler = async (event, context) => {
     if (event.httpMethod === 'DELETE') {
       const decoded = verifyToken(event.headers.authorization);
       
-      // Get existing post
-      const existingPost = await store.get(slug, { type: 'json' });
+      const existingPost = await storage.get(slug);
       
       if (!existingPost) {
         return {
@@ -183,7 +197,6 @@ exports.handler = async (event, context) => {
         };
       }
 
-      // Check ownership
       if (existingPost.author !== `${decoded.username}@${decoded.instance}`) {
         return {
           statusCode: 403,
@@ -195,7 +208,7 @@ exports.handler = async (event, context) => {
         };
       }
 
-      await store.delete(slug);
+      await storage.delete(slug);
 
       return {
         statusCode: 200,
@@ -235,8 +248,7 @@ exports.handler = async (event, context) => {
       headers,
       body: JSON.stringify({
         error: 'server_error',
-        message: error.message,
-        tip: 'Make sure @netlify/blobs is installed: npm install @netlify/blobs'
+        message: error.message
       })
     };
   }
