@@ -22,7 +22,7 @@ export default function Index({ globalData }) {
     setMounted(true);
   }, []);
 
-  // Load posts from API only - no static fallback
+  // Load posts from API
   const loadPosts = async (pageNum = 1, append = false) => {
     try {
       setLoading(true);
@@ -37,11 +37,11 @@ export default function Index({ globalData }) {
       if (data.success) {
         const newPosts = data.data.posts.map(post => ({
           ...post,
-          filePath: `${post.slug}.mdx`, // For compatibility with existing Link structure
+          filePath: `${post.slug}.mdx`,
           data: {
             title: post.title,
             description: post.description,
-            content_preview: post.content_preview, // Add content preview
+            content_preview: post.content_preview,
             date: new Date(post.date).toLocaleDateString('en-US', {
               year: 'numeric',
               month: 'long', 
@@ -79,7 +79,7 @@ export default function Index({ globalData }) {
     }
   }, [mounted]);
 
-  // Refresh posts (used after creating new post)
+  // Refresh posts
   const refreshPosts = () => {
     setPage(1);
     loadPosts(1, false);
@@ -97,65 +97,22 @@ export default function Index({ globalData }) {
       <SEO title={globalData.name} description={globalData.blogTitle} />
       <Header name={globalData.name} onPostCreated={refreshPosts} />
       <main className="w-full">
-        <h1 className="mb-8 text-3xl text-center lg:text-5xl">
+        <h1 className="mb-12 text-3xl text-center lg:text-5xl">
           {globalData.blogTitle}
         </h1>
-
-        {/* Community Info */}
-        <div className="mb-8 p-4 bg-white/10 dark:bg-gray-800/50 backdrop-blur-lg rounded-lg border border-gray-200/20 text-center">
-          <div className="text-2xl mb-2">🌐</div>
-          <h2 className="text-xl font-semibold mb-2">Community Blog</h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            A collaborative blog powered by the Lemmy community. 
-            {!isAuthenticated && ' Login with your Lemmy account to start contributing!'}
-            {isAuthenticated && ` Welcome ${user?.display_name || user?.username}! Share your thoughts with the community.`}
-          </p>
-          {posts.length > 0 && (
-            <div className="flex justify-center gap-6 text-sm">
-              <span><strong>{posts.length}</strong> posts loaded</span>
-              <span><strong>{new Set(posts.map(p => p.data.author)).size}</strong> contributors</span>
-            </div>
-          )}
-        </div>
-
-        {/* Quick Action Bar for Authenticated Users */}
-        {mounted && isAuthenticated && (
-          <div className="mb-8 p-4 bg-gradient-to-r from-primary/10 to-gradient-2/10 backdrop-blur-lg rounded-lg border border-primary/20">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-sm">
-                <span className="font-medium">Ready to share something?</span>
-                <span className="block sm:inline sm:ml-2">Create a new post and contribute to the community!</span>
-              </div>
-              <div className="flex gap-2">
-                <Link
-                  href="/admin?newPost=true"
-                  className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors text-sm font-medium whitespace-nowrap"
-                >
-                  ✍️ Write Post
-                </Link>
-                <Link
-                  href="/admin"
-                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-400 transition-colors text-sm font-medium whitespace-nowrap"
-                >
-                  📊 Dashboard
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Loading State */}
         {loading && posts.length === 0 && (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <div>Loading community posts...</div>
+            <div>Loading posts...</div>
           </div>
         )}
 
         {/* Error State */}
-        {error && !loading && (
+        {error && !loading && posts.length === 0 && (
           <div className="mb-8 p-4 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg text-center">
-            <div className="font-medium mb-2">⚠️ Unable to load posts</div>
+            <div className="font-medium mb-2">Unable to load posts</div>
             <div className="text-sm mb-3">{error}</div>
             <button 
               onClick={() => loadPosts()} 
@@ -212,7 +169,7 @@ export default function Index({ globalData }) {
                     {post.data.title}
                   </h2>
                   
-                  {/* Show description if available, otherwise show content preview */}
+                  {/* Show description or content preview */}
                   {(post.data.description || post.data.content_preview || post.content_preview) && (
                     <p className="text-lg opacity-60 mb-4 line-clamp-3">
                       {post.data.description || post.data.content_preview || post.content_preview}
@@ -237,60 +194,30 @@ export default function Index({ globalData }) {
         )}
 
         {/* Load More Button */}
-        {hasMore && posts.length > 0 && (
+        {hasMore && posts.length > 0 && !loading && (
           <div className="text-center mt-8">
             <button
               onClick={loadMore}
               disabled={loading}
               className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50 transition-colors font-medium"
             >
-              {loading ? 'Loading...' : 'Load More Posts'}
+              Load More Posts
             </button>
           </div>
         )}
 
-        {/* Empty State */}
+        {/* Empty State - Simple */}
         {posts.length === 0 && !loading && !error && (
           <div className="text-center py-16">
-            <div className="text-6xl mb-4">📝</div>
-            <h3 className="text-2xl font-semibold mb-4">No Posts Yet</h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md mx-auto">
-              Be the first to contribute to this community blog! 
-              Login with your Lemmy account and share your thoughts.
-            </p>
-            {!isAuthenticated ? (
-              <Link
-                href="/login"
-                className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors font-medium"
-              >
-                🚀 Get Started
-              </Link>
-            ) : (
+            <h3 className="text-2xl font-semibold mb-4 opacity-60">No posts yet</h3>
+            {mounted && isAuthenticated && (
               <Link
                 href="/admin?newPost=true"
                 className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors font-medium"
               >
-                ✍️ Write First Post
+                Write First Post
               </Link>
             )}
-          </div>
-        )}
-
-        {/* Call to Action for Non-Authenticated Users */}
-        {mounted && !isAuthenticated && posts.length > 0 && (
-          <div className="mt-12 p-8 bg-gradient-to-br from-primary/10 to-gradient-2/10 backdrop-blur-lg rounded-lg border border-primary/20 text-center">
-            <div className="text-4xl mb-4">🤝</div>
-            <h3 className="text-xl font-semibold mb-4">Join the Community</h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-2xl mx-auto">
-              Love what you&apos;re reading? Join our community blog! 
-              Login with your Lemmy account to share your own stories, tutorials, and insights.
-            </p>
-            <Link
-              href="/login"
-              className="inline-flex items-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors font-medium"
-            >
-              🔗 Join with Lemmy
-            </Link>
           </div>
         )}
       </main>
@@ -307,7 +234,6 @@ export default function Index({ globalData }) {
   );
 }
 
-// Keep getStaticProps but remove static post fetching
 export function getStaticProps() {
   const globalData = getGlobalData();
   return { props: { globalData } };
