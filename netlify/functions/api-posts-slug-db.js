@@ -1,54 +1,5 @@
 const jwt = require('jsonwebtoken');
-
-// This needs to match the posts from api-posts-db.js
-// In a real app, you'd use shared storage
-const samplePosts = {
-  'welcome-to-community': {
-    slug: 'welcome-to-community',
-    title: 'Welcome to Our Community Blog!',
-    description: 'A place where Lemmy users share their thoughts and ideas',
-    content: `# Welcome to Our Community Blog!
-
-This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights.
-
-## Getting Started
-
-To contribute to our community blog:
-
-1. **Login** with your Lemmy account credentials
-2. **Click "Write Post"** to create new content  
-3. **Share your knowledge** with the community!
-
-## What You Can Share
-
-- Programming tutorials and tips
-- Technology insights and reviews  
-- Personal projects and experiences
-- Community discussions and thoughts
-- Open source project updates
-- Technical guides and how-tos
-
-## Community Guidelines
-
-- Be respectful and constructive
-- Share original content or properly attribute sources
-- Use clear, descriptive titles
-- Add relevant tags to help others find your content
-
-We're excited to see what you'll contribute to our growing community! Every post helps make this a valuable resource for Lemmy users everywhere.
-
-Happy blogging! 🚀`,
-    author: 'Community Team',
-    date: new Date().toISOString().split('T')[0],
-    tags: ['welcome', 'community', 'getting-started'],
-    read_time: 3,
-    word_count: 180,
-    published: true,
-    draft: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  }
-};
+const { getStore } = require('@netlify/blobs');
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -72,22 +23,20 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Extract slug from path - handle different path formats
+    // Get the Netlify Blobs store
+    const store = getStore('blog-posts');
+
+    // Extract slug from path
     let slug = '';
-    
-    // Try different path extraction methods
     if (event.pathParameters && event.pathParameters.slug) {
       slug = event.pathParameters.slug;
     } else {
       const pathParts = event.path.split('/');
       slug = pathParts[pathParts.length - 1];
     }
-    
-    // Remove query parameters if any
-    slug = slug.split('?')[0];
+    slug = slug.split('?')[0]; // Remove query parameters
     
     console.log('Looking for post with slug:', slug);
-    console.log('Available posts:', Object.keys(samplePosts));
 
     if (!slug) {
       return {
@@ -103,56 +52,176 @@ exports.handler = async (event, context) => {
     // GET /api/posts-slug-db/:slug - Get specific post
     if (event.httpMethod === 'GET') {
       
-      // Check if we have this specific post
-      let post = samplePosts[slug];
+      try {
+        // Try to get the post from persistent storage
+        const postData = await store.get(slug, { type: 'json' });
+        
+        if (postData) {
+          console.log('Found post in storage:', postData.title);
+          
+          // Don't return drafts unless user is authenticated and is the author
+          if (postData.draft) {
+            try {
+              const decoded = verifyToken(event.headers.authorization);
+              if (postData.author !== `${decoded.username}@${decoded.instance}`) {
+                throw new Error('Not the author');
+              }
+            } catch (authError) {
+              return {
+                statusCode: 404,
+                headers,
+                body: JSON.stringify({
+                  error: 'not_found',
+                  message: 'Post not found'
+                })
+              };
+            }
+          }
+
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({
+              success: true,
+              data: {
+                post: postData,
+                meta: {
+                  api_url: `${process.env.URL}/.netlify/functions/api-posts-slug-db/${slug}`,
+                  web_url: `${process.env.URL}/posts/${slug}`,
+                  edit_url: `${process.env.URL}/admin?edit=${slug}`,
+                  storage_type: 'netlify_blobs_persistent'
+                }
+              }
+            })
+          };
+        }
+        
+      } catch (storageError) {
+        console.log('Post not found in storage:', storageError.message);
+      }
       
-      // If not found, create a generic post for any slug
-      if (!post) {
-        console.log('Post not found in samples, creating generic post for:', slug);
-        post = {
-          slug: slug,
-          title: `Blog Post: ${slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`,
-          description: 'A community blog post',
-          content: `# ${slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+      // If post not found in storage, return 404
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({
+          error: 'not_found',
+          message: `Post '${slug}' not found in our database`,
+          suggestion: 'Check the URL or browse available posts from the home page'
+        })
+      };
+    }
 
-This is a blog post from our community. 
-
-## Content
-
-This post was created by a member of our Lemmy community. We're building a collaborative space where users can share their thoughts, tutorials, and insights.
-
-## Join the Discussion
-
-Want to contribute your own posts? Login with your Lemmy account and start sharing!
-
----
-
-*This post is part of our community-driven blog platform.*`,
-          author: 'Community Member',
-          date: new Date().toISOString().split('T')[0],
-          tags: ['community', 'blog'],
-          read_time: 2,
-          word_count: 50,
-          published: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+    // PUT /api/posts-slug-db/:slug - Update post (authenticated)
+    if (event.httpMethod === 'PUT') {
+      const decoded = verifyToken(event.headers.authorization);
+      const { title, content, description, tags, isDraft } = JSON.parse(event.body);
+      
+      const existingPost = await store.get(slug, { type: 'json' });
+      
+      if (!existingPost) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            error: 'not_found',
+            message: 'Post not found'
+          })
         };
       }
 
-      console.log('Returning post:', post.title);
+      // Check if user is the author
+      if (existingPost.author !== `${decoded.username}@${decoded.instance}`) {
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({
+            error: 'forbidden',
+            message: 'You can only edit your own posts'
+          })
+        };
+      }
+
+      // Update post data
+      const updatedPost = {
+        ...existingPost,
+        title: title || existingPost.title,
+        content: content || existingPost.content,
+        description: description !== undefined ? description : existingPost.description,
+        tags: tags !== undefined ? (Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim()).filter(Boolean)) : existingPost.tags,
+        draft: isDraft !== undefined ? isDraft : existingPost.draft,
+        published: isDraft !== undefined ? !isDraft : existingPost.published,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Recalculate derived fields if content changed
+      if (content && content !== existingPost.content) {
+        const wordCount = content.split(/\s+/).length;
+        updatedPost.word_count = wordCount;
+        updatedPost.read_time = Math.ceil(wordCount / 200);
+        updatedPost.content_preview = content.substring(0, 200) + (content.length > 200 ? '...' : '');
+      }
+
+      await store.set(slug, JSON.stringify(updatedPost));
+      console.log('Post updated in persistent storage:', slug);
 
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({
           success: true,
+          message: 'Post updated successfully',
           data: {
-            post: post,
-            meta: {
-              api_url: `${process.env.URL}/.netlify/functions/api-posts-slug-db/${slug}`,
-              web_url: `${process.env.URL}/posts/${slug}`,
-              edit_url: `${process.env.URL}/admin?edit=${slug}`
-            }
+            slug: slug,
+            title: updatedPost.title,
+            updated_at: updatedPost.updated_at,
+            storage_type: 'netlify_blobs_persistent'
+          }
+        })
+      };
+    }
+
+    // DELETE /api/posts-slug-db/:slug - Delete post (authenticated)
+    if (event.httpMethod === 'DELETE') {
+      const decoded = verifyToken(event.headers.authorization);
+      
+      const existingPost = await store.get(slug, { type: 'json' });
+      
+      if (!existingPost) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            error: 'not_found',
+            message: 'Post not found'
+          })
+        };
+      }
+
+      // Check if user is the author
+      if (existingPost.author !== `${decoded.username}@${decoded.instance}`) {
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({
+            error: 'forbidden',
+            message: 'You can only delete your own posts'
+          })
+        };
+      }
+
+      await store.delete(slug);
+      console.log('Post deleted from persistent storage:', slug);
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: 'Post deleted successfully',
+          data: {
+            slug: slug,
+            deleted_at: new Date().toISOString()
           }
         })
       };
@@ -186,8 +255,7 @@ Want to contribute your own posts? Login with your Lemmy account and start shari
       headers,
       body: JSON.stringify({
         error: 'server_error',
-        message: 'Internal server error',
-        details: error.message
+        message: 'Internal server error'
       })
     };
   }
