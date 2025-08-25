@@ -1,11 +1,5 @@
 const jwt = require('jsonwebtoken');
-
-// Simple in-memory storage as fallback
-// IMPORTANT: Share this store across all functions
-if (!global.blogPostsMemoryStore) {
-  global.blogPostsMemoryStore = new Map();
-}
-const memoryStore = global.blogPostsMemoryStore;
+const { getStore } = require('@netlify/blobs');
 
 function verifyToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -30,77 +24,65 @@ function formatDate(date = new Date()) {
 }
 
 // Initialize welcome post if none exists
-async function ensureWelcomePost() {
+async function ensureWelcomePost(store) {
   const welcomeSlug = 'welcome-to-community';
   
-  if (memoryStore.has(welcomeSlug)) {
-    return;
+  try {
+    // Check if welcome post already exists
+    const existingPost = await store.get(welcomeSlug);
+    if (existingPost) {
+      console.log('Welcome post already exists');
+      return;
+    }
+  } catch (error) {
+    // Post doesn't exist, create it
+    console.log('Creating welcome post...');
   }
 
   const welcomePost = {
     slug: welcomeSlug,
-    title: 'Welcome to Our Community Blog! 🚀',
-    description: 'A place where Lemmy users share their thoughts, ideas, and expertise',
-    content: `# Welcome to Our Community Blog! 🚀
+    title: 'Welcome to Our Blog! 🚀',
+    description: 'Start sharing your thoughts and ideas',
+    content: `# Welcome to Our Blog! 🚀
 
-This is a collaborative space where members of the Lemmy community can share their thoughts, tutorials, and insights with the world.
-
-## 🌟 What Makes This Special
-
-This isn't just another blog - it's a **community-driven platform** where every Lemmy user can contribute and share their knowledge.
+This is your blog platform where you can share your thoughts, tutorials, and insights with the world.
 
 ## 🚀 Getting Started
 
-To contribute to our growing community:
+To contribute:
 
-1. **Login** with your Lemmy account credentials from any instance
-2. **Click "Write Post"** to create new content  
-3. **Share your expertise** with fellow community members
-4. **Engage and learn** from others' contributions
+1. **Login** with your Lemmy account credentials
+2. **Click "New Post"** to create content  
+3. **Share your expertise** with readers
+4. **Engage and learn** from others
 
 ## 💡 What You Can Share
 
-- **Programming tutorials** and coding tips
-- **Technology insights** and product reviews  
-- **Personal projects** and development experiences
-- **Community discussions** and thoughtful opinions
-- **Open source contributions** and project updates
-- **Technical guides** and comprehensive how-tos
+- **Tutorials** and coding tips
+- **Technology insights** and reviews  
+- **Personal projects** and experiences
+- **Thoughts and opinions**
+- **Technical guides** and how-tos
 - **Industry insights** and career advice
 
-## 📝 Content Guidelines
+## 📝 Writing Tips
 
-To maintain a high-quality community resource:
+- **Use clear, descriptive titles**
+- **Add relevant tags** to categorize your posts
+- **Write for your audience**
+- **Include examples when helpful**
 
-- **Be respectful and constructive** in all interactions
-- **Share original content** or properly attribute sources
-- **Use clear, descriptive titles** that help others find your content
-- **Add relevant tags** to categorize your posts effectively
-- **Write for your audience** - assume readers want to learn
-
-## 🎯 Our Mission
-
-We're building more than just a blog - we're creating a **knowledge hub** where the Lemmy community can:
-- Share expertise across different domains
-- Learn from each other's experiences
-- Build connections beyond individual instances
-- Create a lasting resource for future community members
-
-## 🤝 Join the Conversation
-
-Every post contributes to our collective knowledge base. Whether you're sharing a quick tip or writing an in-depth tutorial, your contribution matters.
-
-**Ready to get started?** Login with your Lemmy account and share something amazing with our community!
+**Ready to get started?** Login with your Lemmy account and share something amazing!
 
 ---
 
-*This platform is built by the community, for the community. Happy blogging!*`,
-    content_preview: 'Welcome to our community blog! A collaborative space where Lemmy users share thoughts, tutorials, and insights. Login with your Lemmy account to start contributing...',
-    author: 'Community Team',
+*Happy blogging!*`,
+    content_preview: 'Welcome to our blog! Start sharing your thoughts and ideas with the world...',
+    author: 'Admin',
     date: formatDate(),
-    tags: ['welcome', 'community', 'getting-started', 'blogging'],
-    read_time: 4,
-    word_count: 320,
+    tags: ['welcome', 'getting-started', 'blogging'],
+    read_time: 2,
+    word_count: 150,
     published: true,
     draft: false,
     created_at: new Date().toISOString(),
@@ -108,8 +90,12 @@ Every post contributes to our collective knowledge base. Whether you're sharing 
     featured: true
   };
 
-  memoryStore.set(welcomeSlug, welcomePost);
-  console.log('Welcome post created in memory');
+  try {
+    await store.set(welcomeSlug, welcomePost);
+    console.log('Welcome post created successfully');
+  } catch (error) {
+    console.error('Error creating welcome post:', error);
+  }
 }
 
 exports.handler = async (event, context) => {
@@ -133,29 +119,15 @@ exports.handler = async (event, context) => {
   console.log('API called:', event.httpMethod, event.path);
 
   try {
-    // Try to use Netlify Blobs if available, otherwise use memory storage
-    let store;
-    let usingBlobs = false;
-    
-    try {
-      // Try to import Netlify Blobs
-      const { getStore } = require('@netlify/blobs');
-      store = getStore('blog-posts');
-      usingBlobs = true;
-      console.log('Using Netlify Blobs for storage');
-    } catch (blobError) {
-      console.log('Netlify Blobs not available, using in-memory storage');
-      // Blobs not available, use memory storage
-      store = {
-        list: async () => ({ blobs: Array.from(memoryStore.keys()).map(key => ({ key })) }),
-        get: async (key) => memoryStore.get(key),
-        set: async (key, value) => memoryStore.set(key, JSON.parse(value)),
-        delete: async (key) => memoryStore.delete(key)
-      };
-    }
+    // Get the Netlify Blobs store
+    // This will automatically use the Netlify Blobs infrastructure
+    const store = getStore({
+      name: 'blog-posts',
+      siteID: context.site?.id, // Use the site ID from context if available
+    });
 
     // Ensure welcome post exists
-    await ensureWelcomePost();
+    await ensureWelcomePost(store);
 
     // GET /api/posts-db - List all posts
     if (event.httpMethod === 'GET') {
@@ -163,33 +135,25 @@ exports.handler = async (event, context) => {
       
       console.log('GET request with params:', { page, limit, search, tag, author });
       
-      // Get all posts
+      // Get all posts from blob storage
+      const { blobs } = await store.list();
       const allPosts = [];
       
-      if (usingBlobs) {
-        const { blobs } = await store.list();
-        console.log(`Found ${blobs.length} blob entries`);
-        
-        for (const { key } of blobs) {
-          try {
-            const postData = await store.get(key, { type: 'json' });
-            if (postData && !postData.draft) {
-              allPosts.push(postData);
-            }
-          } catch (error) {
-            console.error(`Error fetching post ${key}:`, error);
-          }
-        }
-      } else {
-        // Using memory storage
-        for (const [key, postData] of memoryStore.entries()) {
+      console.log(`Found ${blobs.length} blob entries`);
+      
+      // Fetch all posts
+      for (const blob of blobs) {
+        try {
+          const postData = await store.get(blob.key);
           if (postData && !postData.draft) {
             allPosts.push(postData);
           }
+        } catch (error) {
+          console.error(`Error fetching post ${blob.key}:`, error);
         }
       }
       
-      console.log(`Loaded ${allPosts.length} published posts from storage`);
+      console.log(`Loaded ${allPosts.length} published posts from Netlify Blobs`);
       
       // Apply filters
       let filteredPosts = allPosts;
@@ -197,15 +161,15 @@ exports.handler = async (event, context) => {
       if (search) {
         const searchLower = search.toLowerCase();
         filteredPosts = filteredPosts.filter(post => 
-          post.title.toLowerCase().includes(searchLower) ||
-          post.description.toLowerCase().includes(searchLower) ||
-          post.content.toLowerCase().includes(searchLower)
+          (post.title && post.title.toLowerCase().includes(searchLower)) ||
+          (post.description && post.description.toLowerCase().includes(searchLower)) ||
+          (post.content && post.content.toLowerCase().includes(searchLower))
         );
       }
       
       if (tag) {
         filteredPosts = filteredPosts.filter(post => 
-          post.tags && post.tags.includes(tag)
+          post.tags && Array.isArray(post.tags) && post.tags.includes(tag)
         );
       }
       
@@ -220,7 +184,9 @@ exports.handler = async (event, context) => {
         if (!a.featured && b.featured) return 1;
         
         // Then by date
-        return new Date(b.created_at) - new Date(a.created_at);
+        const dateA = new Date(a.created_at || a.date);
+        const dateB = new Date(b.created_at || b.date);
+        return dateB - dateA;
       });
 
       // Pagination
@@ -253,9 +219,8 @@ exports.handler = async (event, context) => {
               author: author || null
             },
             meta: {
-              total_stored_posts: allPosts.length,
-              storage_type: usingBlobs ? 'netlify_blobs' : 'in_memory',
-              note: usingBlobs ? 'Using persistent Netlify Blobs storage' : 'Using temporary in-memory storage (posts will be lost on restart)'
+              total_stored_posts: blobs.length,
+              storage_type: 'netlify_blobs_persistent'
             }
           }
         })
@@ -313,30 +278,26 @@ exports.handler = async (event, context) => {
         }
       };
 
-      // Store the post
-      if (usingBlobs) {
-        await store.set(uniqueSlug, JSON.stringify(newPost));
-        console.log('Post saved to Netlify Blobs:', uniqueSlug);
-      } else {
-        memoryStore.set(uniqueSlug, newPost);
-        console.log('Post saved to memory:', uniqueSlug);
-      }
+      // Store in Netlify Blobs - this persists permanently!
+      await store.set(uniqueSlug, newPost);
+      
+      console.log('Post saved to Netlify Blobs:', uniqueSlug);
 
       return {
         statusCode: 201,
         headers,
         body: JSON.stringify({ 
           success: true,
-          message: usingBlobs ? 'Post created and saved permanently' : 'Post created (temporary storage)',
+          message: 'Post created and saved permanently to Netlify Blobs',
           data: {
             slug: uniqueSlug,
             title: title,
             author: newPost.author,
             status: isDraft ? 'draft' : 'published',
             created_at: newPost.created_at,
-            storage_type: usingBlobs ? 'netlify_blobs_persistent' : 'in_memory_temporary',
+            storage_type: 'netlify_blobs_persistent',
             url: `${process.env.URL || ''}/posts/${uniqueSlug}`,
-            api_url: `${process.env.URL || ''}/.netlify/functions/api-posts-slug-db/${uniqueSlug}`
+            api_url: `${process.env.URL || ''}/.netlify/functions/api-post-by-slug?slug=${uniqueSlug}`
           }
         })
       };
@@ -371,7 +332,8 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({ 
         error: 'server_error',
         message: 'Internal server error',
-        details: error.message
+        details: error.message,
+        storage_note: 'Ensure @netlify/blobs is installed: npm install @netlify/blobs'
       })
     };
   }
