@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog CMS API Documentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #7d7aff 0%, #2121e2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .version-badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            margin-top: 10px;
+        }
+        
+        nav {
+            background: #f8f9fa;
+            padding: 20px 40px;
+            border-bottom: 1px solid #dee2e6;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        nav ul {
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        nav a {
+            color: #495057;
+            text-decoration: none;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.3s;
+        }
+        
+        nav a:hover {
+            background: #7d7aff;
+            color: white;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .section {
+            margin-bottom: 50px;
+        }
+        
+        .section h2 {
+            color: #7d7aff;
+            font-size: 2em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #7d7aff;
+        }
+        
+        .section h3 {
+            color: #495057;
+            font-size: 1.5em;
+            margin: 30px 0 15px 0;
+        }
+        
+        .info-card {
+            background: #f8f9fa;
+            border-left: 4px solid #7d7aff;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        
+        .endpoint {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+        
+        .endpoint-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .endpoint-header:hover {
+            background: #e9ecef;
+        }
+        
+        .method {
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 4px;
+            color: white;
+            font-size: 0.9em;
+        }
+        
+        .method.get { background: #28a745; }
+        .method.post { background: #007bff; }
+        .method.put { background: #ffc107; color: #333; }
+        .method.delete { background: #dc3545; }
+        
+        .endpoint-path {
+            font-family: 'Courier New', monospace;
+            font-weight: 500;
+            color: #495057;
+            flex-grow: 1;
+        }
+        
+        .auth-required {
+            background: #ff6b6b;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        
+        .endpoint-content {
+            padding: 20px;
+            display: none;
+        }
+        
+        .endpoint.active .endpoint-content {
+            display: block;
+        }
+        
+        .endpoint-description {
+            color: #6c757d;
+            margin-bottom: 20px;
+        }
+        
+        .params-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        
+        .params-table th {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: left;
+            font-weight: 600;
+            border: 1px solid #dee2e6;
+        }
+        
+        .params-table td {
+            padding: 10px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .param-name {
+            font-family: 'Courier New', monospace;
+            font-weight: 500;
+            color: #e83e8c;
+        }
+        
+        .param-type {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+            margin: 20px 0;
+        }
+        
+        .code-block .comment {
+            color: #6272a4;
+        }
+        
+        .code-block .string {
+            color: #f1fa8c;
+        }
+        
+        .code-block .keyword {
+            color: #ff79c6;
+        }
+        
+        .response-codes {
+            margin: 20px 0;
+        }
+        
+        .response-code {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .status-code {
+            background: #28a745;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        
+        .status-code.error {
+            background: #dc3545;
+        }
+        
+        .status-code.warning {
+            background: #ffc107;
+            color: #333;
+        }
+        
+        .example-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            color: #6c757d;
+            transition: all 0.3s;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+        
+        .tab.active {
+            color: #7d7aff;
+            border-bottom-color: #7d7aff;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        @media (max-width: 768px) {
+            nav ul {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .endpoint-header {
+                flex-wrap: wrap;
+            }
+            
+            .params-table {
+                font-size: 0.9em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 Blog CMS API Documentation</h1>
+            <p>REST API for the Lemmy-authenticated blog CMS</p>
+            <span class="version-badge">Version 1.0.0</span>
+        </header>
+        
+        <nav>
+            <ul>
+                <li><a href="#overview">Overview</a></li>
+                <li><a href="#authentication">Authentication</a></li>
+                <li><a href="#posts">Posts</a></li>
+                <li><a href="#user">User</a></li>
+                <li><a href="#examples">Examples</a></li>
+                <li><a href="#rate-limits">Rate Limits</a></li>
+            </ul>
+        </nav>
+        
+        <div class="content">
+            <!-- Overview Section -->
+            <section id="overview" class="section">
+                <h2>Overview</h2>
+                <div class="info-card">
+                    <p><strong>Base URL:</strong> <code>https://your-site.netlify.app/.netlify/functions</code></p>
+                    <p><strong>Format:</strong> JSON</p>
+                    <p><strong>Authentication:</strong> Bearer Token (JWT)</p>
+                </div>
+                <p>This API allows you to manage blog posts with Lemmy authentication. All requests and responses use JSON format.</p>
+            </section>
+            
+            <!-- Authentication Section -->
+            <section id="authentication" class="section">
+                <h2>Authentication</h2>
+                <p>Most endpoints require authentication using a Bearer token obtained from the login endpoint.</p>
+                
+                <div class="info-card">
+                    <p><strong>Header Format:</strong> <code>Authorization: Bearer &lt;your_token&gt;</code></p>
+                </div>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method post">POST</span>
+                        <span class="endpoint-path">/api-auth-login</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">Login with Lemmy credentials to obtain an access token.</p>
+                        
+                        <h4>Request Body</h4>
+                        <table class="params-table">
+                            <thead>
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="param-name">instance</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Lemmy instance domain (e.g., "lemmy.ml")</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">username</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Your Lemmy username</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">password</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Your Lemmy password</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        
+                        <h4>Response</h4>
+                        <div class="response-codes">
+                            <div class="response-code">
+                                <span class="status-code">200</span>
+                                <span>Login successful - returns access_token and user profile</span>
+                            </div>
+                            <div class="response-code">
+                                <span class="status-code error">401</span>
+                                <span>Invalid credentials</span>
+                            </div>
+                            <div class="response-code">
+                                <span class="status-code error">400</span>
+                                <span>Missing required fields</span>
+                            </div>
+                        </div>
+                        
+                        <h4>Example Response</h4>
+                        <div class="code-block">
+{
+  <span class="string">"success"</span>: true,
+  <span class="string">"data"</span>: {
+    <span class="string">"access_token"</span>: <span class="string">"eyJhbGciOiJIUzI1NiIs..."</span>,
+    <span class="string">"token_type"</span>: <span class="string">"Bearer"</span>,
+    <span class="string">"expires_in"</span>: 86400,
+    <span class="string">"user"</span>: {
+      <span class="string">"username"</span>: <span class="string">"johndoe"</span>,
+      <span class="string">"instance"</span>: <span class="string">"lemmy.ml"</span>,
+      <span class="string">"display_name"</span>: <span class="string">"John Doe"</span>
+    }
+  }
+}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/api-auth-me</span>
+                        <span class="auth-required">🔐 Auth Required</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">Get current user information and session details.</p>
+                        
+                        <h4>Response</h4>
+                        <div class="response-codes">
+                            <div class="response-code">
+                                <span class="status-code">200</span>
+                                <span>User information retrieved successfully</span>
+                            </div>
+                            <div class="response-code">
+                                <span class="status-code error">401</span>
+                                <span>Invalid or expired token</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Posts Section -->
+            <section id="posts" class="section">
+                <h2>Posts</h2>
+                <p>Endpoints for managing blog posts.</p>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/api-posts-db</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">List all published posts with pagination and filtering.</p>
+                        
+                        <h4>Query Parameters</h4>
+                        <table class="params-table">
+                            <thead>
+                                <tr>
+                                    <th>Parameter</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="param-name">page</span></td>
+                                    <td><span class="param-type">number</span></td>
+                                    <td>Page number (default: 1)</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">limit</span></td>
+                                    <td><span class="param-type">number</span></td>
+                                    <td>Posts per page (default: 10, max: 50)</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">search</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Search in title and description</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">tag</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Filter by tag</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">author</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Filter by author</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/api-posts-slug-db?slug={slug}</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">Get a specific post by its slug.</p>
+                        
+                        <h4>Query Parameters</h4>
+                        <table class="params-table">
+                            <thead>
+                                <tr>
+                                    <th>Parameter</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="param-name">slug</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>The post slug identifier</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method post">POST</span>
+                        <span class="endpoint-path">/api-posts-db</span>
+                        <span class="auth-required">🔐 Auth Required</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">Create a new blog post.</p>
+                        
+                        <h4>Request Body</h4>
+                        <table class="params-table">
+                            <thead>
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="param-name">title</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Post title (required)</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">content</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Post content in Markdown (required)</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">description</span></td>
+                                    <td><span class="param-type">string</span></td>
+                                    <td>Brief description (optional)</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">tags</span></td>
+                                    <td><span class="param-type">array/string</span></td>
+                                    <td>Tags for categorization (optional)</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="param-name">isDraft</span></td>
+                                    <td><span class="param-type">boolean</span></td>
+                                    <td>Save as draft (default: false)</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method put">PUT</span>
+                        <span class="endpoint-path">/api-posts-slug-db?slug={slug}</span>
+                        <span class="auth-required">🔐 Auth Required</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">Update an existing post. Only the author can update their own posts.</p>
+                    </div>
+                </div>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method delete">DELETE</span>
+                        <span class="endpoint-path">/api-posts-slug-db?slug={slug}</span>
+                        <span class="auth-required">🔐 Auth Required</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">Delete a post. Only the author can delete their own posts.</p>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- User Section -->
+            <section id="user" class="section">
+                <h2>User</h2>
+                <p>Endpoints for user profile and statistics.</p>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/api-user-profile</span>
+                        <span class="auth-required">🔐 Auth Required</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">Get user profile with blog statistics.</p>
+                    </div>
+                </div>
+                
+                <div class="endpoint">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/api-user-posts</span>
+                        <span class="auth-required">🔐 Auth Required</span>
+                    </div>
+                    <div class="endpoint-content">
+                        <p class="endpoint-description">Get all posts by the authenticated user.</p>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Examples Section -->
+            <section id="examples" class="section">
+                <h2>Examples</h2>
+                
+                <div class="example-section">
+                    <h3>Login Example</h3>
+                    <div class="tabs">
+                        <button class="tab active" onclick="showTab(this, 'login-curl')">cURL</button>
+                        <button class="tab" onclick="showTab(this, 'login-js')">JavaScript</button>
+                    </div>
+                    
+                    <div id="login-curl" class="tab-content active">
+                        <div class="code-block">
+curl -X POST https://your-site.netlify.app/.netlify/functions/api-auth-login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instance": "lemmy.ml",
+    "username": "your_username",
+    "password": "your_password"
+  }'
+                        </div>
+                    </div>
+                    
+                    <div id="login-js" class="tab-content">
+                        <div class="code-block">
+<span class="keyword">const</span> response = <span class="keyword">await</span> fetch(<span class="string">'/.netlify/functions/api-auth-login'</span>, {
+  method: <span class="string">'POST'</span>,
+  headers: {
+    <span class="string">'Content-Type'</span>: <span class="string">'application/json'</span>
+  },
+  body: JSON.stringify({
+    instance: <span class="string">'lemmy.ml'</span>,
+    username: <span class="string">'your_username'</span>,
+    password: <span class="string">'your_password'</span>
+  })
+});
+
+<span class="keyword">const</span> data = <span class="keyword">await</span> response.json();
+<span class="keyword">const</span> token = data.data.access_token;
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="example-section">
+                    <h3>Create Post Example</h3>
+                    <div class="tabs">
+                        <button class="tab active" onclick="showTab(this, 'post-curl')">cURL</button>
+                        <button class="tab" onclick="showTab(this, 'post-js')">JavaScript</button>
+                    </div>
+                    
+                    <div id="post-curl" class="tab-content active">
+                        <div class="code-block">
+curl -X POST https://your-site.netlify.app/.netlify/functions/api-posts-db \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "title": "My New Post",
+    "content": "# Hello World\n\nThis is my blog post content...",
+    "description": "A sample blog post",
+    "tags": ["tutorial", "api"],
+    "isDraft": false
+  }'
+                        </div>
+                    </div>
+                    
+                    <div id="post-js" class="tab-content">
+                        <div class="code-block">
+<span class="keyword">const</span> response = <span class="keyword">await</span> fetch(<span class="string">'/.netlify/functions/api-posts-db'</span>, {
+  method: <span class="string">'POST'</span>,
+  headers: {
+    <span class="string">'Content-Type'</span>: <span class="string">'application/json'</span>,
+    <span class="string">'Authorization'</span>: <span class="string">`Bearer ${token}`</span>
+  },
+  body: JSON.stringify({
+    title: <span class="string">'My New Post'</span>,
+    content: <span class="string">'# Hello World\n\nThis is my blog post content...'</span>,
+    description: <span class="string">'A sample blog post'</span>,
+    tags: [<span class="string">'tutorial'</span>, <span class="string">'api'</span>],
+    isDraft: <span class="keyword">false</span>
+  })
+});
+
+<span class="keyword">const</span> result = <span class="keyword">await</span> response.json();
+console.log(<span class="string">'Post created:'</span>, result);
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Rate Limits Section -->
+            <section id="rate-limits" class="section">
+                <h2>Rate Limits</h2>
+                <div class="info-card">
+                    <p><strong>Authenticated requests:</strong> 100 requests per hour</p>
+                    <p><strong>Unauthenticated requests:</strong> 20 requests per hour</p>
+                    <p>Rate limit headers are included in all responses.</p>
+                </div>
+            </section>
+        </div>
+    </div>
+    
+    <script>
+        function toggleEndpoint(header) {
+            const endpoint = header.parentElement;
+            endpoint.classList.toggle('active');
+        }
+        
+        function showTab(button, contentId) {
+            // Remove active class from all tabs and contents in this section
+            const parent = button.parentElement;
+            const section = parent.parentElement;
+            
+            parent.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            section.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Add active class to clicked tab and corresponding content
+            button.classList.add('active');
+            document.getElementById(contentId).classList.add('active');
+        }
+        
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('nav a').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                const targetId = this.getAttribute('href').substring(1);
+                const targetElement = document.getElementById(targetId);
+                if (targetElement) {
+                    targetElement.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
