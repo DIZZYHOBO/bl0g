@@ -45,15 +45,24 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Extract slug from path
+    // Extract slug from path or query parameters
     let slug = '';
-    if (event.pathParameters && event.pathParameters.slug) {
+    
+    // First check query parameters (for client-side requests)
+    if (event.queryStringParameters && event.queryStringParameters.slug) {
+      slug = event.queryStringParameters.slug;
+    } 
+    // Then check path parameters (for Netlify routing)
+    else if (event.pathParameters && event.pathParameters.slug) {
       slug = event.pathParameters.slug;
-    } else {
+    } 
+    // Finally try to extract from path
+    else {
       const pathParts = event.path.split('/');
       slug = pathParts[pathParts.length - 1];
     }
-    slug = slug.split('?')[0]; // Remove query parameters
+    
+    slug = slug.split('?')[0]; // Remove any remaining query parameters
     
     console.log('Looking for post with slug:', slug);
 
