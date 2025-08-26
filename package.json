@@ -19,6 +19,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
+    "dev": "netlify dev",
+    "build": "next build && next export",
+    "deploy": "netlify deploy --prod"
   },
   "dependencies": {
     "@mapbox/rehype-prism": "^0.9.0",
@@ -39,6 +42,7 @@
     "react-dom": "^18.2.0",
     "rehype-unwrap-images": "^1.0.0",
     "remark-gfm": "^4.0.0"
+    "@netlify/blobs": "^8.1.0",
   },
   "devDependencies": {
     "@netlify/blobs": "^8.1.0",
@@ -51,6 +55,8 @@
     "postcss": "^8.4.38",
     "tailwindcss": "^4.0.16",
     "typescript": "^5.1.3"
+    "@netlify/cli": "^17.0.0"
+
   },
   "license": "MIT"
 }
