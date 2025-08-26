@@ -18,7 +18,6 @@
     "dev:watch": "next-remote-watch ./posts",
     "dev:netlify": "netlify dev",
     "build": "next build",
-    "build:export": "next build && next export",
     "start": "next start",
     "lint": "next lint",
     "deploy": "netlify deploy --prod"
