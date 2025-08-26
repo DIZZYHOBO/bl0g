@@ -101,16 +101,7 @@ exports.handler = async (event, context) => {
       const { blobs } = await store.list();
       console.log(`Found ${blobs.length} posts in Netlify Blobs`);
       
-      // If empty, create welcome post
-      if (blobs.length === 0) {
-        console.log('Creating welcome post...');
-        const welcomePost = createWelcomePost();
-        await store.setJSON(welcomePost.slug, welcomePost);
-        // Re-list
-        const updated = await store.list();
-        blobs.push(...updated.blobs);
-      }
-      
+        
       // Fetch all posts
       const allPosts = [];
       for (const blob of blobs) {
