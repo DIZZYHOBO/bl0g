@@ -6,10 +6,6 @@ const nextConfig = {
   images: {
     unoptimized: true
   },
-  // Add experimental features if needed
-  experimental: {
-    esmExternals: false,
-  },
   // Webpack configuration to handle server-side modules
   webpack: (config, { isServer }) => {
     if (!isServer) {
