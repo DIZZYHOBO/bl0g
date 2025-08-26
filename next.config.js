@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Remove output: 'export' for Netlify deployment
+  output: 'export',
   trailingSlash: true,
   images: {
     unoptimized: true
@@ -9,7 +9,21 @@ const nextConfig = {
   // Add experimental features if needed
   experimental: {
     esmExternals: false,
-  }
+  },
+  // Webpack configuration to handle server-side modules
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // Don't resolve server-side modules on the client
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        'react-dom/server': false,
+      };
+    }
+    
+    return config;
+  },
 }
 
 module.exports = nextConfig
