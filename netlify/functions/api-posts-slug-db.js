@@ -1,4 +1,4 @@
-econst jwt = require('jsonwebtoken');
+const jwt = require('jsonwebtoken'); // ✅ Fixed: was "econst"
 const { getStore } = require('@netlify/blobs');
 
 function verifyToken(authHeader) {
